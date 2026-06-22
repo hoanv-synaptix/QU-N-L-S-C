@@ -18,6 +18,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "charger_protocol.h"
+#include "charger_core.h"
 
 /* ============== Configuration ============== */
 
@@ -28,60 +30,25 @@
 #define MXR_MAX_RETRIES         3       /* Số lần retry trước khi báo offline */
 
 /* ============== Protocol Constants ============== */
-
-/* Frame ID fields */
-#define MXR_PROTNO              0x060
-#define MXR_PTP_POINT           1
-#define MXR_PTP_BROADCAST       0
-
-/* Addresses */
-#define MXR_ADDR_CONTROLLER     0xF0
-#define MXR_ADDR_BROADCAST      0xFF
-#define MXR_ADDR_GROUP_BCAST    0xFE
-
-/* Function codes */
-#define MXR_FUNC_SET            0x03
-#define MXR_FUNC_READ           0x10
-
-/* Response types */
-#define MXR_RESP_FLOAT          0x41
-#define MXR_RESP_INT            0x42
-#define MXR_RESP_OK             0xF0
-#define MXR_RESP_FAIL           0xF2
+/* Defined in charger_protocol.h */
 
 /* ============== Register Map ============== */
+/* Common registers defined in charger_protocol.h as CHG_REG_... */
 
-#define MXR_REG_VOLTAGE         0x0001
-#define MXR_REG_CURRENT         0x0002
-#define MXR_REG_CURR_LIMIT_RD   0x0003
-#define MXR_REG_TEMP_DCDC       0x0004
+/* Specific registers for Maxwell */
 #define MXR_REG_INPUT_VOLTAGE   0x0005
 #define MXR_REG_PFC0_VOLTAGE    0x0008
 #define MXR_REG_PFC1_VOLTAGE    0x000A
-#define MXR_REG_TEMP_AMBIENT    0x000B
 #define MXR_REG_AC_PHASE_A      0x000C
 #define MXR_REG_AC_PHASE_B      0x000D
 #define MXR_REG_AC_PHASE_C      0x000E
 #define MXR_REG_TEMP_PFC        0x0010
-#define MXR_REG_RATED_POWER     0x0011
-#define MXR_REG_RATED_CURRENT   0x0012
 #define MXR_REG_SET_ALTITUDE    0x0017
 #define MXR_REG_SET_CURRENT_INT 0x001B
 #define MXR_REG_SET_GROUP       0x001E
 #define MXR_REG_SET_ADDR_MODE   0x001F
-#define MXR_REG_SET_POWER       0x0020
-#define MXR_REG_SET_VOLTAGE     0x0021
-#define MXR_REG_SET_CURR_LIMIT  0x0022
-#define MXR_REG_SET_OVP         0x0023
-#define MXR_REG_ON_OFF          0x0030
 #define MXR_REG_OVP_RESET       0x0031
-#define MXR_REG_ALARM_STATUS    0x0040
-#define MXR_REG_GROUP_ADDR      0x0043
-#define MXR_REG_SHORT_RESET     0x0044
-#define MXR_REG_INPUT_MODE_SET  0x0046
-#define MXR_REG_INPUT_POWER     0x0048
 #define MXR_REG_ALTITUDE_RD     0x004A
-#define MXR_REG_INPUT_MODE_RD   0x004B
 
 /* ============== Alarm Status Bits ============== */
 
@@ -153,6 +120,7 @@ typedef struct {
     float    temp_dcdc;         /* DCDC board temperature (C) */
     float    temp_ambient;      /* Ambient temperature (C) */
     uint32_t alarm_status;      /* Raw alarm bits */
+    CHG_AlarmFlag_t alarm_flags; /* Standardized alarm flags */
     uint32_t input_power;       /* Input power (W) */
 
     /* Trạng thái quản lý */
@@ -321,7 +289,7 @@ uint32_t MXR_BuildFrameID(uint8_t dst_addr, uint8_t src_addr,
  * @brief  Kiểm tra module có alarm critical không
  */
 static inline bool MXR_HasCriticalAlarm(const MXR_Module_t *mod) {
-    return (mod->alarm_status & MXR_ALARM_CRITICAL_MASK) != 0;
+    return mod->alarm_flags != CHG_ALARM_NONE;
 }
 
 /**
