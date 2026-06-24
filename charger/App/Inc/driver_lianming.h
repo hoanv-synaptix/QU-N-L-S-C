@@ -1,8 +1,6 @@
-#ifndef DRIVER_LIANMING_H
-#define DRIVER_LIANMING_H
-
-#include "charger_core.h"
-
-const CHG_DriverOps_t *CHG_LianmingDriverOps(void);
-
-#endif /* DRIVER_LIANMING_H */
+/**
+ * @file driver_lianming.h
+ * @brief Lianming Power Digital Charging Module Driver Interface
+ * @note Protocol V2.0 - CAN 2.0B Extended Frame, 125Kbps
+ *
+ * Usage:

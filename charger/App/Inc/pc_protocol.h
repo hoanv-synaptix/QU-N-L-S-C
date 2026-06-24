@@ -27,18 +27,21 @@
 #define PC_CMD_PING             0x06
 #define PC_CMD_READ_REG         0x07
 #define PC_CMD_EMERGENCY_STOP   0x08
+#define PC_CMD_SET_DRIVER       0x09
 
 /* Responses STM32 -> PC */
 #define PC_RSP_STATUS           0x81
 #define PC_RSP_ACK              0x82
 #define PC_RSP_NACK             0x83
 #define PC_RSP_PONG             0x84
+#define PC_RSP_READ_REG         0x85
 
 /* NACK error codes */
 #define PC_ERR_BAD_CRC          0x01
 #define PC_ERR_UNKNOWN_CMD      0x02
 #define PC_ERR_BAD_LENGTH       0x03
 #define PC_ERR_CAN_TX_FAIL      0x04
+#define PC_ERR_BAD_PARAM        0x05
 
 /* Status report (gửi định kỳ về PC) */
 #pragma pack(push, 1)
@@ -54,7 +57,12 @@ typedef struct {
     uint8_t  charging;       /* 1 = có module đang sạc */
     uint8_t  btn_start;      /* Trạng thái nút Start */
     uint8_t  btn_stop;       /* Trạng thái nút Stop */
-} PC_StatusReport_t;        /* 31 bytes */
+} PC_StatusReport_t;        /* 29 bytes */
+
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+_Static_assert(sizeof(PC_StatusReport_t) == 29, "PC_StatusReport_t must stay 29 bytes");
+#endif
+
 #pragma pack(pop)
 
 /* ============== API ============== */
@@ -77,3 +85,4 @@ bool PC_Protocol_IsCharging(void);
 #define FW_VERSION_PATCH    0
 
 #endif /* PC_PROTOCOL_H */
+

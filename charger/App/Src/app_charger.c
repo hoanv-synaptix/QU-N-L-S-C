@@ -5,7 +5,11 @@
 
 #include "app_charger.h"
 #include "bsp_can.h"
-#include "maxwell_charger.h"
+#include "bms_core.h"
+#include "charger_core.h"
+#include "driver_lianming.h"
+#include "driver_maxwell.h"
+#include "driver_tonhe.h"
 #include "pc_protocol.h"
 #include "debug_log.h"
 #include "main.h"
@@ -16,6 +20,7 @@
 
 #define APP_MODULE_ADDR         0x00    /* DIP switch trên module đầu tiên */
 #define APP_MODULE_GROUP        0x00
+#define APP_DEFAULT_DRIVER      CHG_DRIVER_MAXWELL
 #define APP_PROCESS_INTERVAL_MS 20      /* MXR_Process mỗi 20ms */
 #define APP_STATUS_INTERVAL_MS  200     /* Gửi status về PC mỗi 200ms */
 #define APP_LED_INTERVAL_MS     100     /* Cập nhật LED mỗi 100ms */
@@ -73,15 +78,31 @@ void App_Init(void)
     }
     LOG("App_Init: CAN bus khoi dong thanh cong.\r\n");
 
-    /* Maxwell driver init + add module mặc định */
-    LOG("App_Init: Khoi tao Maxwell driver, them module (addr=0x%02X)\r\n", APP_MODULE_ADDR);
-    MXR_Init();
-    MXR_AddModule(APP_MODULE_ADDR, APP_MODULE_GROUP);
+    /* Start CAN2 (BMS) */
+    LOG("App_Init: Khoi dong CAN2 (BMS)...\r\n");
+    if (!BSP_CAN2_Start()) {
+        LOG("App_Init: CAN2 khoi dong that bai!\r\n");
+    } else {
+        LOG("App_Init: CAN2 khoi dong thanh cong.\r\n");
+    }
 
-    /* Khởi động MOCK CAN2 (Mạch giả lập module Maxwell) */
-    BSP_CAN2_Start();
-    LOG("App_Init: Da khoi dong CAN2 Mock.\r\n");
+    /* Initialize BMS driver */
+    BMS_Init();
+    LOG("App_Init: BMS driver khoi dong xong.\r\n");
 
+    /* Register the available vendor backends. */
+    LOG("App_Init: Khoi tao charger core (default_driver=%d)\r\n", (int)APP_DEFAULT_DRIVER);
+    CHG_RegisterDriver(CHG_DRIVER_MAXWELL, CHG_MaxwellDriverOps());
+    CHG_RegisterDriver(CHG_DRIVER_LIANMING, CHG_LianmingDriverOps());
+    CHG_RegisterDriver(CHG_DRIVER_TONHE, CHG_TonheDriverOps());
+    CHG_SelectDriver(APP_DEFAULT_DRIVER);
+    CHG_Init();
+    CHG_AddModule(APP_MODULE_ADDR, APP_MODULE_GROUP);
+
+    /* CAN2 được khởi động ở trên cùng với BMS_Init()
+       (BSP_CAN2_Start đã được gọi) */
+
+    LOG("App_Init: Active driver = %s\r\n", CHG_GetActiveDriverName());
     LOG("App_Init: Hoan tat khoi tao.\r\n");
 }
 
@@ -94,7 +115,8 @@ void App_Loop(void)
     /* (1) Maxwell process — poll, FSM, timeout detection */
     if ((now - last_process_tick) >= APP_PROCESS_INTERVAL_MS) {
         last_process_tick = now;
-        MXR_Process(now);
+        CHG_Process(now);
+        BMS_Process(now);
     }
 
     /* (2) Gửi status report về PC */
@@ -113,7 +135,7 @@ void App_Loop(void)
             btn_start_last = now;
             LOG("App_Loop: Nhan nut START -> Khoi dong tat ca module\r\n");
             /* Start tất cả module */
-            MXR_StartAll();
+            CHG_StartAll();
         }
         btn_start_prev = start_raw;
 
@@ -122,7 +144,7 @@ void App_Loop(void)
             btn_stop_last = now;
             LOG("App_Loop: Nhan nut STOP -> Dung tat ca module\r\n");
             /* Stop tất cả module */
-            MXR_StopAll();
+            CHG_StopAll();
         }
         btn_stop_prev = stop_raw;
     }
@@ -131,8 +153,8 @@ void App_Loop(void)
     if ((now - last_led_tick) >= APP_LED_INTERVAL_MS) {
         last_led_tick = now;
 
-        MXR_SystemSummary_t sum;
-        MXR_GetSystemSummary(&sum);
+        CHG_SystemSummary_t sum;
+        CHG_GetSystemSummary(&sum);
 
         /* LED_RUN: sáng khi có module online & đang sạc */
         if (sum.modules_online > 0 && PC_Protocol_IsCharging()) {
@@ -161,21 +183,4 @@ void App_CAN_RxCallback(void)
         if (header.IDE == CAN_ID_EXT) {
             LOG("[CAN RX] ID:%08lX Data:%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
                 header.ExtId, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-            MXR_FeedCanFrame(header.ExtId, data, (uint8_t)header.DLC);
-        }
-    }
-}
-
-void App_CAN2_RxCallback(void)
-{
-    extern CAN_HandleTypeDef hcan2;
-    CAN_RxHeaderTypeDef header;
-    uint8_t data[8];
-
-    if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &header, data) == HAL_OK) {
-        if (header.IDE == CAN_ID_EXT) {
-            extern void Mock_CAN2_Process_RX(uint32_t ext_id, const uint8_t *data, uint8_t dlc);
-            Mock_CAN2_Process_RX(header.ExtId, data, (uint8_t)header.DLC);
-        }
-    }
-}
+            CHG_FeedCanFrame(header.ExtId, data, (u

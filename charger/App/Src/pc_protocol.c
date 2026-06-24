@@ -4,7 +4,7 @@
  */
 
 #include "pc_protocol.h"
-#include "maxwell_charger.h"
+#include "charger_core.h"
 #include "usbd_cdc_if.h"
 #include <string.h>
 
@@ -63,6 +63,102 @@ static float payload_float(const uint8_t *p) {
     return u.f;
 }
 
+static void pack_u8(uint8_t value, uint8_t *out)
+{
+    out[0] = value;
+}
+
+static void pack_u32_le(uint32_t value, uint8_t *out)
+{
+    out[0] = (uint8_t)value;
+    out[1] = (uint8_t)(value >> 8);
+    out[2] = (uint8_t)(value >> 16);
+    out[3] = (uint8_t)(value >> 24);
+}
+
+static void pack_float_le(float value, uint8_t *out)
+{
+    union { float f; uint8_t b[4]; } u;
+    u.f = value;
+    out[0] = u.b[0];
+    out[1] = u.b[1];
+    out[2] = u.b[2];
+    out[3] = u.b[3];
+}
+
+static bool send_read_reg_response(uint8_t module_idx, uint16_t reg, uint8_t type,
+                                   const uint8_t *data, uint8_t len)
+{
+    uint8_t payload[8];
+    if (len > 4U) {
+        return false;
+    }
+
+    payload[0] = module_idx;
+    payload[1] = (uint8_t)(reg >> 8);
+    payload[2] = (uint8_t)(reg & 0xFFU);
+    payload[3] = type;
+    if (len > 0U) {
+        payload[4] = data[0];
+        if (len > 1U) payload[5] = data[1];
+        if (len > 2U) payload[6] = data[2];
+        if (len > 3U) payload[7] = data[3];
+    }
+    send_frame(PC_RSP_READ_REG, payload, (uint8_t)(4U + len));
+    return true;
+}
+
+static bool read_module_field(uint8_t module_idx, uint16_t reg)
+{
+    CHG_ModuleView_t view;
+    uint8_t data[4];
+
+    if (!CHG_GetModuleView(module_idx, &view) || !view.enabled) {
+        return false;
+    }
+
+    switch (reg) {
+    case 0x0001:
+        pack_float_le(view.voltage, data);
+        return send_read_reg_response(module_idx, reg, 0x01, data, 4);
+    case 0x0002:
+        pack_float_le(view.current, data);
+        return send_read_reg_response(module_idx, reg, 0x01, data, 4);
+    case 0x0003:
+        pack_float_le(view.current_limit, data);
+        return send_read_reg_response(module_idx, reg, 0x01, data, 4);
+    case 0x0004:
+        pack_float_le(view.temp_dcdc, data);
+        return send_read_reg_response(module_idx, reg, 0x01, data, 4);
+    case 0x000B:
+        pack_float_le(view.temp_ambient, data);
+        return send_read_reg_response(module_idx, reg, 0x01, data, 4);
+    case 0x0040:
+        pack_u32_le(view.alarm_status, data);
+        return send_read_reg_response(module_idx, reg, 0x02, data, 4);
+    case 0x0048:
+        pack_u32_le(view.input_power, data);
+        return send_read_reg_response(module_idx, reg, 0x02, data, 4);
+    case 0x0100:
+        pack_u8((uint8_t)view.state, data);
+        return send_read_reg_response(module_idx, reg, 0x03, data, 1);
+    case 0x0101:
+        pack_u8(view.online ? 1U : 0U, data);
+        return send_read_reg_response(module_idx, reg, 0x03, data, 1);
+    case 0x0102:
+        pack_u8(view.running ? 1U : 0U, data);
+        return send_read_reg_response(module_idx, reg, 0x03, data, 1);
+    case 0x0103:
+        pack_u8(view.addr, data);
+        return send_read_reg_response(module_idx, reg, 0x03, data, 1);
+    case 0x0104:
+        pack_u8(view.group, data);
+        return send_read_reg_response(module_idx, reg, 0x03, data, 1);
+    default:
+        return false;
+    }
+}
+
 /* ============== Command handler ============== */
 
 static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
@@ -73,47 +169,69 @@ static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
     case PC_CMD_SET_VOLTAGE:
         if (len != 4) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
         last_set_voltage = payload_float(payload);
-        MXR_SetVoltageAll(last_set_voltage);
+        CHG_SetVoltageAll(last_set_voltage);
         ok = true;
         break;
 
     case PC_CMD_SET_CURRENT:
         if (len != 4) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
         last_set_current = payload_float(payload);
-        MXR_SetCurrentLimitAll(last_set_current);
+        CHG_SetCurrentLimitAll(last_set_current);
         ok = true;
         break;
 
     case PC_CMD_START:
-        MXR_StartAll();
+        CHG_StartAll();
         g_charging = 1;
         ok = true;
         break;
 
     case PC_CMD_STOP:
-        MXR_StopAll();
+        CHG_StopAll();
         g_charging = 0;
         ok = true;
         break;
 
     case PC_CMD_EMERGENCY_STOP:
-        MXR_EmergencyStop();
+        CHG_EmergencyStop();
         g_charging = 0;
+        ok = true;
+        break;
+
+    case PC_CMD_SET_DRIVER:
+        if (len != 1) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
+        if (!CHG_SelectDriver((CHG_DriverId_t)payload[0])) {
+            send_nack(cmd, PC_ERR_CAN_TX_FAIL);
+            return;
+        }
+        CHG_Init();
         ok = true;
         break;
 
     case PC_CMD_SET_MODULE_ADDR:
         if (len != 2) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
-        MXR_Init(); /* Xóa các cấu hình module cũ */
-        MXR_AddModule(payload[0], payload[1]);
-        /* Khôi phục lại setpoint cũ */
-        MXR_SetVoltageAll(last_set_voltage);
-        MXR_SetCurrentLimitAll(last_set_current);
+        CHG_Init(); /* Reset current driver state */
+        CHG_AddModule(payload[0], payload[1]);
+        CHG_SetVoltageAll(last_set_voltage);
+        CHG_SetCurrentLimitAll(last_set_current);
         if (g_charging) {
-            MXR_StartAll(); /* Tự động start lại nếu hệ thống đang sạc */
+            CHG_StartAll();
         }
         ok = true;
         break;
+
+    case PC_CMD_READ_REG: {
+        uint8_t module_idx;
+        uint16_t reg;
+        if (len != 3) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
+        module_idx = payload[0];
+        reg = (uint16_t)(((uint16_t)payload[1] << 8) | payload[2]);
+        if (!read_module_field(module_idx, reg)) {
+            send_nack(cmd, PC_ERR_BAD_PARAM);
+            return;
+        }
+        return;
+    }
 
     case PC_CMD_PING:
         PC_Protocol_SendPong();
@@ -169,18 +287,18 @@ void PC_Protocol_FeedByte(uint8_t byte)
 
 void PC_Protocol_SendStatus(void)
 {
-    MXR_SystemSummary_t sum;
-    MXR_GetSystemSummary(&sum);
+    CHG_SystemSummary_t sum;
+    CHG_GetSystemSummary(&sum);
 
     /* Lấy temp cao nhất từ module đầu tiên online */
     float temp_dcdc = 0, temp_amb = 0;
     uint32_t alarm_or = 0;
-    for (uint8_t i = 0; i < MXR_GetModuleCount(); i++) {
-        const MXR_Module_t *m = MXR_GetModule(i);
-        if (m == NULL || !m->enabled) continue;
-        if (m->temp_dcdc > temp_dcdc) temp_dcdc = m->temp_dcdc;
-        if (m->temp_ambient > temp_amb) temp_amb = m->temp_ambient;
-        alarm_or |= m->alarm_status;
+    CHG_ModuleView_t view;
+    for (uint8_t i = 0; i < CHG_GetModuleCount(); i++) {
+        if (!CHG_GetModuleView(i, &view) || !view.enabled) continue;
+        if (view.temp_dcdc > temp_dcdc) temp_dcdc = view.temp_dcdc;
+        if (view.temp_ambient > temp_amb) temp_amb = view.temp_ambient;
+        alarm_or |= view.alarm_status;
     }
 
     PC_StatusReport_t report;

@@ -108,21 +108,21 @@ static float mock_temp = 35.5f;
 
 void Mock_CAN2_Process_RX(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
 {
-    /* Trích xuất destination address từ frame CAN1 gửi tới (đáng lý là module) */
-    uint8_t dst_addr = (uint8_t)((ext_id >> 11) & 0xFF);
-    
+    /* Trích xuất destination address từ frame CAN1 gửi tới (bits 9-16) */
+    uint8_t dst_addr = (uint8_t)((ext_id >> 9) & 0xFF);
+
     /* CHỈ NHẬN MODULE 0 VÀ 1 (Test hardware filtering) */
     if (dst_addr != 0x00 && dst_addr != 0x01) {
         return; /* Bỏ qua gói tin, giả lập module không tồn tại */
     }
-    
+
     /* Tạo ID phản hồi từ Module (SRC) về Controller (DST) */
     uint32_t rx_id = 0;
-    rx_id |= ((uint32_t)0x060 & 0x1FF) << 20;
-    rx_id |= ((uint32_t)1 & 0x01) << 19;     
-    rx_id |= ((uint32_t)0xF0 & 0xFF) << 11;    /* DST = Controller */
-    rx_id |= ((uint32_t)dst_addr & 0xFF) << 3; /* SRC = Module Address */
-    rx_id |= ((uint32_t)0 & 0x07);           
+    rx_id |= ((uint32_t)0x060 & 0x1FF) << 20;    /* PROTNO */
+    rx_id |= ((uint32_t)1 & 0x01) << 19;         /* PTP=1 */
+    rx_id |= ((uint32_t)0xF0 & 0xFF) << 9;      /* DST = Controller */
+    rx_id |= ((uint32_t)dst_addr & 0xFF) << 1;   /* SRC = Module Address */
+    rx_id |= 0;                                   /* GRP=0 */           
     
     uint8_t rx_data[8] = {0};
     rx_data[1] = 0xF0; /* OK Error code */
@@ -188,5 +188,4 @@ void Mock_CAN2_Process_RX(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
     header.DLC   = 8;
     header.TransmitGlobalTime = DISABLE;
 
-    HAL_CAN_AddTxMessage(&hcan2, &header, rx_data, &tx_mailbox);
-}
+    HAL_CAN_AddTxMessage(&h

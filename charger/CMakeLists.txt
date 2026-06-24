@@ -47,8 +47,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     App/Src/app_charger.c
     App/Src/bsp_can.c
+    App/Src/bms_core.c
+    App/Src/bms_protocol.c
+    App/Src/charger_core.c
+    App/Src/driver_lianming.c
+    App/Src/driver_maxwell.c
+    App/Src/driver_tonhe.c
     App/Src/debug_log.c
-    App/Src/maxwell_charger.c
     App/Src/pc_protocol.c
 )
 
@@ -67,8 +72,4 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 
 # Add linked libraries
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    stm32cubemx
-
-    # Add user defined libraries
-)
+target_link_libra
