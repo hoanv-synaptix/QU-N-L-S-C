@@ -449,4 +449,119 @@ static bool mx_stop(uint8_t idx)
  return true;
 }
 
-static void mx_set_voltage_all(float voltage
+static void mx_set_voltage_all(float voltage_v)
+{
+ for (uint8_t i = 0; i < g_module_count; i++) (void)mx_set_voltage(i, voltage_v);
+}
+
+static void mx_set_current_limit_all(float ratio)
+{
+ for (uint8_t i = 0; i < g_module_count; i++) (void)mx_set_current_limit(i, ratio);
+}
+
+static void mx_start_all(void)
+{
+ for (uint8_t i = 0; i < g_module_count; i++) (void)mx_start(i);
+}
+
+static void mx_stop_all(void)
+{
+ for (uint8_t i = 0; i < g_module_count; i++) (void)mx_stop(i);
+}
+
+static void mx_emergency_stop(void)
+{
+ uint32_t now = now_tick();
+ for (uint8_t i = 0; i < g_module_count; i++) {
+ MXR_Internal_t *m = &g_modules[i];
+ if (!m->view.enabled) continue;
+ m->setpoint.should_run = false;
+ send_set_u32(m, CHG_REG_ON_OFF, MXR_CMD_STOP);
+ set_state(m, CHG_STATE_IDLE, now);
+ }
+}
+
+static void mx_process(uint32_t now)
+{
+ if (g_module_count == 0) return;
+ MXR_Internal_t *m = &g_modules[g_current_idx];
+ if (m->view.enabled) {
+ process_module(m, now);
+ }
+ g_current_idx = (g_current_idx + 1) % g_module_count;
+}
+
+static void mx_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
+{
+ if (dlc < 8 || data == 0) return;
+ uint8_t src_addr = (uint8_t)((ext_id >> 1) & 0xFF);
+ MXR_Internal_t *m = find_by_addr(src_addr);
+ if (m == NULL) return;
+ apply_response(m, data, now_tick());
+}
+
+static void mx_get_system_summary(CHG_SystemSummary_t *summary)
+{
+ if (summary == 0) return;
+ memset(summary, 0, sizeof(*summary));
+
+ for (uint8_t i = 0; i < g_module_count; i++) {
+ CHG_ModuleView_t *v = &g_modules[i].view;
+ if (!v->enabled) continue;
+ if (v->state == CHG_STATE_RUNNING || v->state == CHG_STATE_STARTING) {
+ summary->modules_online++;
+ summary->total_current += v->current;
+ summary->total_power_in += (float)v->input_power;
+ if (summary->voltage == 0.0f && v->voltage > 0.0f) {
+ summary->voltage = v->voltage;
+ }
+ }
+ if (v->state == CHG_STATE_FAULT) {
+ summary->modules_fault++;
+ summary->any_critical = true;
+ }
+ if (v->alarm_flags != CHG_ALARM_NONE) {
+ summary->any_critical = true;
+ }
+ }
+}
+
+static uint8_t mx_get_module_count(void)
+{
+ return g_module_count;
+}
+
+static bool mx_get_module_view(uint8_t idx, CHG_ModuleView_t *view)
+{
+ if (idx >= g_module_count || view == 0) return false;
+ *view = g_modules[idx].view; /* copy trực tiếp - same type */
+ return true;
+}
+
+/* ============== Public API ============== */
+
+static const CHG_DriverOps_t g_maxwell_ops = {
+ .name = "maxwell",
+ .init = mx_init,
+ .add_module = mx_add_module,
+ .remove_module = mx_remove_module,
+ .set_voltage = mx_set_voltage,
+ .set_current_limit = mx_set_current_limit,
+ .start = mx_start,
+ .stop = mx_stop,
+ .set_voltage_all = mx_set_voltage_all,
+ .set_current_limit_all = mx_set_current_limit_all,
+ .start_all = mx_start_all,
+ .stop_all = mx_stop_all,
+ .emergency_stop = mx_emergency_stop,
+ .process = mx_process,
+ .feed_frame = mx_feed_frame,
+ .get_system_summary = mx_get_system_summary,
+ .get_module_count = mx_get_module_count,
+ .get_module_view = mx_get_module_view,
+};
+
+const CHG_DriverOps_t *CHG_MaxwellDriverOps(void)
+{
+ return &g_maxwell_ops;
+}

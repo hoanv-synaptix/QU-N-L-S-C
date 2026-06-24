@@ -618,4 +618,69 @@ static void tonhe_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
 
 static void tonhe_get_system_summary(CHG_SystemSummary_t *summary)
 {
- 
+    if (summary == NULL) return;
+    memset(summary, 0, sizeof(*summary));
+
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        CHG_ModuleView_t *v = &g_modules[i].view;
+        if (!v->enabled) continue;
+
+        if (v->state == CHG_STATE_RUNNING || v->state == CHG_STATE_STARTING) {
+            summary->modules_online++;
+            summary->total_current += v->current;
+            summary->total_power_in += v->voltage * v->current;
+            if (summary->voltage == 0.0f && v->voltage > 0.0f) {
+                summary->voltage = v->voltage;
+            }
+        }
+
+        if (v->state == CHG_STATE_FAULT) {
+            summary->modules_fault++;
+            summary->any_critical = true;
+        }
+
+        if (v->alarm_flags != CHG_ALARM_NONE) {
+            summary->any_critical = true;
+        }
+    }
+}
+
+static uint8_t tonhe_get_module_count(void)
+{
+    return g_module_count;
+}
+
+static bool tonhe_get_module_view(uint8_t idx, CHG_ModuleView_t *view)
+{
+    if (idx >= g_module_count || view == NULL) return false;
+    *view = g_modules[idx].view;
+    return true;
+}
+
+/* ============== Driver Table ============== */
+
+static const CHG_DriverOps_t g_tonhe_ops = {
+    .name = "tonhe",
+    .init = tonhe_init,
+    .add_module = tonhe_add_module,
+    .remove_module = tonhe_remove_module,
+    .set_voltage = tonhe_set_voltage,
+    .set_current_limit = tonhe_set_current_limit,
+    .start = tonhe_start,
+    .stop = tonhe_stop,
+    .set_voltage_all = tonhe_set_voltage_all,
+    .set_current_limit_all = tonhe_set_current_limit_all,
+    .start_all = tonhe_start_all,
+    .stop_all = tonhe_stop_all,
+    .emergency_stop = tonhe_emergency_stop,
+    .process = tonhe_process,
+    .feed_frame = tonhe_feed_frame,
+    .get_system_summary = tonhe_get_system_summary,
+    .get_module_count = tonhe_get_module_count,
+    .get_module_view = tonhe_get_module_view,
+};
+
+const CHG_DriverOps_t *CHG_TonheDriverOps(void)
+{
+    return &g_tonhe_ops;
+}

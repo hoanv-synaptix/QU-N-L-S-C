@@ -183,4 +183,32 @@ void App_CAN_RxCallback(void)
         if (header.IDE == CAN_ID_EXT) {
             LOG("[CAN RX] ID:%08lX Data:%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
                 header.ExtId, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-            CHG_FeedCanFrame(header.ExtId, data, (u
+            CHG_FeedCanFrame(header.ExtId, data, (uint8_t)header.DLC);
+        }
+    }
+}
+
+void App_CAN2_RxCallback(void)
+{
+    CAN_RxHeaderTypeDef header;
+    uint8_t data[8];
+
+    if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &header, data) == HAL_OK) {
+        uint32_t ext_id = 0U;
+        uint32_t std_id = 0U;
+
+        if (header.IDE == CAN_ID_EXT) {
+            ext_id = header.ExtId;
+        } else {
+            std_id = header.StdId;
+        }
+
+        LOG("[BMS RX] IDE:%u ID:%08lX Data:%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+            (header.IDE == CAN_ID_EXT) ? 1U : 0U,
+            (header.IDE == CAN_ID_EXT) ? header.ExtId : header.StdId,
+            data[0], data[1], data[2], data[3],
+            data[4], data[5], data[6], data[7]);
+
+        BMS_FeedFrame(ext_id, std_id, data, (uint8_t)header.DLC);
+    }
+}

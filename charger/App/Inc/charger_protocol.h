@@ -57,4 +57,71 @@
  * DATA CONVERSION HELPERS
  * ========================================================= */
 
-/*
+/**
+ * @brief  Float to Big-Endian (IEEE 754)
+ * @note   Dùng cho Maxwell (Float format)
+ */
+static inline void CHG_ProtocolFloatToBE(float value, uint8_t *out)
+{
+    union { float f; uint8_t b[4]; } u;
+    u.f = value;
+    out[0] = u.b[3];
+    out[1] = u.b[2];
+    out[2] = u.b[1];
+    out[3] = u.b[0];
+}
+
+/**
+ * @brief  Big-Endian to Float (IEEE 754)
+ * @note   Dùng cho Maxwell (Float format)
+ */
+static inline float CHG_ProtocolBEToFloat(const uint8_t *in)
+{
+    union { float f; uint8_t b[4]; } u;
+    u.b[3] = in[0];
+    u.b[2] = in[1];
+    u.b[1] = in[2];
+    u.b[0] = in[3];
+    return u.f;
+}
+
+/**
+ * @brief  UInt32 to Big-Endian
+ */
+static inline void CHG_ProtocolU32ToBE(uint32_t value, uint8_t *out)
+{
+    out[0] = (uint8_t)(value >> 24);
+    out[1] = (uint8_t)(value >> 16);
+    out[2] = (uint8_t)(value >> 8);
+    out[3] = (uint8_t)value;
+}
+
+/**
+ * @brief  Big-Endian to UInt32
+ */
+static inline uint32_t CHG_ProtocolBEToU32(const uint8_t *in)
+{
+    return ((uint32_t)in[0] << 24) |
+           ((uint32_t)in[1] << 16) |
+           ((uint32_t)in[2] << 8) |
+           ((uint32_t)in[3]);
+}
+
+/**
+ * @brief  UInt16 to Big-Endian (dùng cho Lianming - 2 byte data)
+ */
+static inline void CHG_ProtocolU16ToBE(uint16_t value, uint8_t *out)
+{
+    out[0] = (uint8_t)(value >> 8);
+    out[1] = (uint8_t)value;
+}
+
+/**
+ * @brief  Big-Endian to UInt16
+ */
+static inline uint16_t CHG_ProtocolBEToU16(const uint8_t *in)
+{
+    return ((uint16_t)in[0] << 8) | ((uint16_t)in[1]);
+}
+
+#endif /* CHARGER_PROTOCOL_H */

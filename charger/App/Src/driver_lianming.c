@@ -475,4 +475,228 @@ static void process_module(uint8_t idx, uint32_t now)
         if (mod->view.alarm_flags == CHG_ALARM_NONE) {
             set_state(mod, mod->should_run ? CHG_STATE_STARTING : CHG_STATE_IDLE, now);
         }
-        if ((now - mod->view.last_rx_tick) > LM_KEEPA
+        if ((now - mod->view.last_rx_tick) > LM_KEEPALIVE_TIMEOUT_MS) {
+            mod->view.stats.timeout_count++;
+            set_state(mod, CHG_STATE_OFFLINE, now);
+        }
+        break;
+    }
+}
+
+void CHG_Lianming_Init(void)
+{
+    memset(g_modules, 0, sizeof(g_modules));
+    g_module_count = 0;
+    g_rr_index = 0;
+}
+
+static void lm_init(void)
+{
+    CHG_Lianming_Init();
+}
+
+static int8_t lm_add_module(uint8_t addr, uint8_t group)
+{
+    if (g_module_count >= LM_MAX_MODULES) {
+        return -1;
+    }
+
+    LM_Module_t *mod = &g_modules[g_module_count];
+    memset(mod, 0, sizeof(*mod));
+    clear_view(&mod->view);
+    mod->view.addr = addr;
+    mod->view.group = group;
+    mod->should_run = false;
+    mod->last_state_tick = 0;
+    mod->retry_count = 0;
+    g_module_count++;
+    return (int8_t)(g_module_count - 1U);
+}
+
+static void lm_remove_module(uint8_t idx)
+{
+    if (idx >= g_module_count) {
+        return;
+    }
+    g_modules[idx].view.enabled = false;
+    g_modules[idx].should_run = false;
+    g_modules[idx].view.state = CHG_STATE_IDLE;
+}
+
+static bool lm_set_voltage(uint8_t idx, float voltage_v)
+{
+    if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
+    g_modules[idx].view.voltage = voltage_v;
+    /* Lianming: send voltage+current together when running */
+    if (g_modules[idx].view.state == CHG_STATE_RUNNING) {
+        lm_set_output(idx, voltage_v, g_modules[idx].view.current_limit * 100.0f);
+    }
+    return true;
+}
+
+static bool lm_set_current_limit(uint8_t idx, float current_a)
+{
+    if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
+    if (current_a < 0.0f) current_a = 0.0f;
+    g_modules[idx].view.current_limit = current_a;
+    /* Lianming: send voltage+current together when running */
+    if (g_modules[idx].view.state == CHG_STATE_RUNNING) {
+        lm_set_output(idx, g_modules[idx].view.voltage, current_a);
+    }
+    return true;
+}
+
+static bool lm_start(uint8_t idx)
+{
+    extern uint32_t HAL_GetTick(void);
+    uint32_t now = HAL_GetTick();
+    if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
+    g_modules[idx].should_run = true;
+    if (g_modules[idx].view.state == CHG_STATE_IDLE) {
+        set_state(&g_modules[idx], CHG_STATE_STARTING, now);
+    }
+    return true;
+}
+
+static bool lm_stop(uint8_t idx)
+{
+    extern uint32_t HAL_GetTick(void);
+    uint32_t now = HAL_GetTick();
+    if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
+    g_modules[idx].should_run = false;
+    lm_stop_module(idx);
+    set_state(&g_modules[idx], CHG_STATE_IDLE, now);
+    return true;
+}
+
+static void lm_set_voltage_all(float voltage_v)
+{
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        (void)lm_set_voltage(i, voltage_v);
+    }
+}
+
+static void lm_set_current_limit_all(float current_a)
+{
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        (void)lm_set_current_limit(i, current_a);
+    }
+}
+
+static void lm_start_all(void)
+{
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        (void)lm_start(i);
+    }
+}
+
+static void lm_stop_all(void)
+{
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        (void)lm_stop(i);
+    }
+}
+
+static void lm_emergency_stop(void)
+{
+    extern uint32_t HAL_GetTick(void);
+    uint32_t now = HAL_GetTick();
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        if (!g_modules[i].view.enabled) continue;
+        g_modules[i].should_run = false;
+        lm_stop_module(i);
+        set_state(&g_modules[i], CHG_STATE_IDLE, now);
+    }
+}
+
+static void lm_process(uint32_t now)
+{
+    if (g_module_count == 0U) return;
+    process_module(g_rr_index, now);
+    g_rr_index = (uint8_t)((g_rr_index + 1U) % g_module_count);
+}
+
+static void lm_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
+{
+    if (dlc < 8U || data == 0) return;
+
+    /* Response ID format: 0x1807C0X where X = module address */
+    uint8_t src_addr = lm_parse_response_addr(ext_id);
+    uint8_t idx = find_by_addr(src_addr);
+    if (idx == 0xFFU) return;
+
+    extern uint32_t HAL_GetTick(void);
+    uint32_t now = HAL_GetTick();
+
+    if (data[1] != LM_RESP_OK) {
+        g_modules[idx].view.stats.error_count++;
+        return;
+    }
+
+    g_modules[idx].view.stats.rx_count++;
+
+    /* Response format: 0x1807C0X where X = module address
+     * Data: CMD(1) | Status(1) | Current(2) | Voltage(2) | Status(2) */
+    apply_status(idx, data, now);
+}
+
+static void lm_get_system_summary(CHG_SystemSummary_t *summary)
+{
+    if (summary == 0) return;
+    memset(summary, 0, sizeof(*summary));
+
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        const CHG_ModuleView_t *m = &g_modules[i].view;
+        if (!m->enabled) continue;
+        if (m->online) {
+            summary->modules_online++;
+            summary->total_current += m->current;
+            summary->total_power_in += (float)m->input_power;
+            if (summary->voltage == 0.0f && m->voltage > 0.0f) {
+                summary->voltage = m->voltage;
+            }
+        }
+        if (m->alarm_flags != CHG_ALARM_NONE) {
+            summary->any_critical = true;
+            summary->modules_fault++;
+        }
+    }
+}
+
+static uint8_t lm_get_module_count(void)
+{
+    return g_module_count;
+}
+
+static bool lm_get_module_view(uint8_t idx, CHG_ModuleView_t *view)
+{
+    if (idx >= g_module_count || view == 0) return false;
+    *view = g_modules[idx].view;
+    return true;
+}
+
+static const CHG_DriverOps_t g_lm_ops = {
+    .name = "lianming",
+    .init = lm_init,
+    .add_module = lm_add_module,
+    .remove_module = lm_remove_module,
+    .set_voltage = lm_set_voltage,
+    .set_current_limit = lm_set_current_limit,
+    .start = lm_start,
+    .stop = lm_stop,
+    .set_voltage_all = lm_set_voltage_all,
+    .set_current_limit_all = lm_set_current_limit_all,
+    .start_all = lm_start_all,
+    .stop_all = lm_stop_all,
+    .emergency_stop = lm_emergency_stop,
+    .process = lm_process,
+    .feed_frame = lm_feed_frame,
+    .get_system_summary = lm_get_system_summary,
+    .get_module_count = lm_get_module_count,
+    .get_module_view = lm_get_module_view,
+};
+
+const CHG_DriverOps_t *CHG_LianmingDriverOps(void)
+{
+    return &g_lm_ops;
+}

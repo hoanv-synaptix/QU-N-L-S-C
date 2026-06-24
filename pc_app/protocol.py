@@ -180,4 +180,14 @@ def parse_maxwell_id(ext_id):
     ptp = (ext_id >> 19) & 0x01
     dst = (ext_id >> 9) & 0xFF
     src = (ext_id >> 1) & 0xFF
-    grp = ext_id & 0
+    grp = ext_id & 0x01
+    return protno, ptp, dst, src, grp
+
+
+def parse_tonhe_id(ext_id):
+    """Parse TONHE/J1939 29-bit CAN ID"""
+    priority = (ext_id >> 26) & 0x07
+    pf = (ext_id >> 16) & 0xFF
+    ps = (ext_id >> 8) & 0xFF
+    sa = ext_id & 0xFF
+    return priority, pf, ps, sa

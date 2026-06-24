@@ -72,4 +72,16 @@
 
 /* ============== Status Values ============== */
 
-#define TO
+#define TONHE_STATUS_NORMAL_OFF  0x00U
+#define TONHE_STATUS_ON        0x01U
+#define TONHE_STATUS_FAULT_OFF 0x11U
+
+/* ============== API ============== */
+
+/**
+ * @brief Get driver operations table for TONHE module
+ * @return Pointer to CHG_DriverOps_t
+ */
+const CHG_DriverOps_t *CHG_TonheDriverOps(void);
+
+#endif /* DRIVER_TONHE_H */

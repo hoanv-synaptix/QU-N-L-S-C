@@ -188,4 +188,5 @@ void Mock_CAN2_Process_RX(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
     header.DLC   = 8;
     header.TransmitGlobalTime = DISABLE;
 
-    HAL_CAN_AddTxMessage(&h
+    HAL_CAN_AddTxMessage(&hcan2, &header, rx_data, &tx_mailbox);
+}
