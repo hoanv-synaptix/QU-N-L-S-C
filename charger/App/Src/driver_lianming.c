@@ -642,32 +642,46 @@ static void lm_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
 
 static void lm_get_system_summary(CHG_SystemSummary_t *summary)
 {
-    if (summary == 0) return;
+    if (summary == NULL) return;
     memset(summary, 0, sizeof(*summary));
+    summary->module_count = g_module_count;
+    summary->running = false;
 
     for (uint8_t i = 0; i < g_module_count; i++) {
         const CHG_ModuleView_t *m = &g_modules[i].view;
         if (!m->enabled) continue;
+
         if (m->online) {
             summary->modules_online++;
             summary->total_current += m->current;
             summary->total_power_in += (float)m->input_power;
+            summary->running = true;
             if (summary->voltage == 0.0f && m->voltage > 0.0f) {
                 summary->voltage = m->voltage;
             }
         }
+
+        /* Temperature tracking */
+        if (m->temp_dcdc > summary->max_temp_dcdc) {
+            summary->max_temp_dcdc = m->temp_dcdc;
+        }
+        if (m->temp_ambient > summary->max_temp_ambient) {
+            summary->max_temp_ambient = m->temp_ambient;
+        }
+
+        /* Alarms */
         if (m->alarm_flags != CHG_ALARM_NONE) {
             summary->any_critical = true;
+            summary->system_alarms |= (uint32_t)m->alarm_flags;
+            summary->module_alarms |= m->alarm_status;
             summary->modules_fault++;
         }
     }
 }
-
 static uint8_t lm_get_module_count(void)
 {
     return g_module_count;
 }
-
 static bool lm_get_module_view(uint8_t idx, CHG_ModuleView_t *view)
 {
     if (idx >= g_module_count || view == 0) return false;

@@ -55,6 +55,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/driver_tonhe.c
     App/Src/debug_log.c
     App/Src/pc_protocol.c
+    App/Src/pc_config.c
+    App/Src/flash_storage.c
 )
 
 # Add include paths

@@ -1,9 +1,11 @@
 /**
  * @file    pc_protocol.c
- * @brief   PC protocol handler - parse lệnh, gửi status, gọi Maxwell API v2
+ * @brief   PC protocol handler - parse lệnh, gửi status, gọi Charger API v2
+ * @note    Bao gồm xử lý cấu hình PC ↔ MCU
  */
 
 #include "pc_protocol.h"
+#include "pc_config.h"
 #include "charger_core.h"
 #include "usbd_cdc_if.h"
 #include <string.h>
@@ -11,8 +13,8 @@
 /* ============== Private ============== */
 
 static uint8_t g_charging = 0;
-static float last_set_voltage = 0.0f;
-static float last_set_current = 1.0f;
+static float g_last_set_voltage = 0.0f;
+static float g_last_set_current = 1.0f;
 
 /* RX state machine */
 typedef enum {
@@ -51,7 +53,9 @@ static void send_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
     buf[i++] = crc8(&buf[2], (uint16_t)(len + 2));
     CDC_Transmit_FS(buf, i);
 }
+
 static void send_ack(uint8_t cmd)  { send_frame(PC_RSP_ACK, &cmd, 1); }
+
 static void send_nack(uint8_t cmd, uint8_t err) {
     uint8_t p[2] = { cmd, err };
     send_frame(PC_RSP_NACK, p, 2);
@@ -63,47 +67,40 @@ static float payload_float(const uint8_t *p) {
     return u.f;
 }
 
-static void pack_u8(uint8_t value, uint8_t *out)
-{
-    out[0] = value;
+static void pack_u8(uint8_t value, uint8_t *out) { out[0] = value; }
+
+static void pack_u16_le(uint16_t value, uint8_t *out) {
+    out[0] = (uint8_t)value;
+    out[1] = (uint8_t)(value >> 8);
 }
 
-static void pack_u32_le(uint32_t value, uint8_t *out)
-{
+static void pack_u32_le(uint32_t value, uint8_t *out) {
     out[0] = (uint8_t)value;
     out[1] = (uint8_t)(value >> 8);
     out[2] = (uint8_t)(value >> 16);
     out[3] = (uint8_t)(value >> 24);
 }
 
-static void pack_float_le(float value, uint8_t *out)
-{
+static void pack_float_le(float value, uint8_t *out) {
     union { float f; uint8_t b[4]; } u;
     u.f = value;
-    out[0] = u.b[0];
-    out[1] = u.b[1];
-    out[2] = u.b[2];
-    out[3] = u.b[3];
+    out[0] = u.b[0]; out[1] = u.b[1]; out[2] = u.b[2]; out[3] = u.b[3];
 }
+
+/* ============== Register Reading ============== */
 
 static bool send_read_reg_response(uint8_t module_idx, uint16_t reg, uint8_t type,
                                    const uint8_t *data, uint8_t len)
 {
     uint8_t payload[8];
-    if (len > 4U) {
-        return false;
-    }
+    if (len > 4U) { return false; }
 
     payload[0] = module_idx;
     payload[1] = (uint8_t)(reg >> 8);
     payload[2] = (uint8_t)(reg & 0xFFU);
     payload[3] = type;
-    if (len > 0U) {
-        payload[4] = data[0];
-        if (len > 1U) payload[5] = data[1];
-        if (len > 2U) payload[6] = data[2];
-        if (len > 3U) payload[7] = data[3];
-    }
+    for (uint8_t i = 0; i < len; i++) payload[4 + i] = data[i];
+    
     send_frame(PC_RSP_READ_REG, payload, (uint8_t)(4U + len));
     return true;
 }
@@ -159,6 +156,100 @@ static bool read_module_field(uint8_t module_idx, uint16_t reg)
     }
 }
 
+/* ============== Configuration Handling ============== */
+
+static void send_config_section(uint8_t section)
+{
+    uint8_t buf[64];
+    uint16_t len = 0;
+    uint8_t *data = &buf[1];  /* Skip section byte */
+    
+    buf[0] = section;
+    
+    switch (section) {
+    case PC_CFG_SECTION_SYSTEM:
+        PC_Cfg_GetSection(PC_CFG_SECTION_SYSTEM, data, &len);
+        break;
+    case PC_CFG_SECTION_CHARGER:
+        PC_Cfg_GetSection(PC_CFG_SECTION_CHARGER, data, &len);
+        break;
+    case PC_CFG_SECTION_MODULE:
+        PC_Cfg_GetSection(PC_CFG_SECTION_MODULE, data, &len);
+        break;
+    case PC_CFG_SECTION_PROTECT:
+        PC_Cfg_GetSection(PC_CFG_SECTION_PROTECT, data, &len);
+        break;
+    case PC_CFG_SECTION_BMS:
+        PC_Cfg_GetSection(PC_CFG_SECTION_BMS, data, &len);
+        break;
+    case PC_CFG_SECTION_DISPLAY:
+        PC_Cfg_GetSection(PC_CFG_SECTION_DISPLAY, data, &len);
+        break;
+    case PC_CFG_SECTION_ALL: {
+        /* Send all config combined */
+        uint8_t *ptr = buf;
+        *ptr++ = PC_CFG_SECTION_ALL;
+        uint16_t l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_SYSTEM, ptr, &l); ptr += l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_CHARGER, ptr, &l); ptr += l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_MODULE, ptr, &l); ptr += l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_PROTECT, ptr, &l); ptr += l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_BMS, ptr, &l); ptr += l;
+        PC_Cfg_GetSection(PC_CFG_SECTION_DISPLAY, ptr, &l); ptr += l;
+        len = ptr - buf - 1;
+        send_frame(PC_RSP_CONFIG, buf, (uint8_t)(len + 1));
+        return;
+    }
+    default:
+        send_nack(PC_CMD_READ_CONFIG, PC_ERR_BAD_PARAM);
+        return;
+    }
+    
+    send_frame(PC_RSP_CONFIG, buf, (uint8_t)(len + 1));
+}
+
+static void handle_config_write(uint8_t section, const uint8_t *data, uint8_t len)
+{
+    if (len < 1) {
+        send_nack(PC_CMD_WRITE_CONFIG, PC_ERR_BAD_LENGTH);
+        return;
+    }
+    
+    int result = PC_Cfg_SetSection(section, data, len);
+    if (result != 0) {
+        send_nack(PC_CMD_WRITE_CONFIG, PC_ERR_BAD_PARAM);
+        return;
+    }
+    
+    /* Apply configuration to charger */
+    if (section == PC_CFG_SECTION_SYSTEM) {
+        PC_CfgSystem_t sys;
+        PC_Cfg_GetSection(PC_CFG_SECTION_SYSTEM, &sys, &len);
+        CHG_SelectDriver((CHG_DriverId_t)sys.driver_id);
+        CHG_Init();
+    }
+    
+    send_ack(PC_CMD_WRITE_CONFIG);
+}
+
+/* ============== History Handling ============== */
+
+static void send_history_record(uint16_t index)
+{
+    PC_HistoryRecord_t record;
+    if (PC_History_Get(index, &record) != 0) {
+        send_nack(PC_CMD_HISTORY_GET, PC_ERR_BAD_PARAM);
+        return;
+    }
+    
+    uint8_t buf[sizeof(PC_HistoryRecord_t) + 2];
+    buf[0] = (uint8_t)(index >> 8);
+    buf[1] = (uint8_t)(index & 0xFF);
+    memcpy(&buf[2], &record, sizeof(PC_HistoryRecord_t));
+    
+    send_frame(PC_RSP_HISTORY, buf, sizeof(buf));
+}
+
 /* ============== Command handler ============== */
 
 static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
@@ -166,17 +257,18 @@ static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
     bool ok = false;
 
     switch (cmd) {
+    /* Basic charger commands */
     case PC_CMD_SET_VOLTAGE:
         if (len != 4) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
-        last_set_voltage = payload_float(payload);
-        CHG_SetVoltageAll(last_set_voltage);
+        g_last_set_voltage = payload_float(payload);
+        CHG_SetVoltageAll(g_last_set_voltage);
         ok = true;
         break;
 
     case PC_CMD_SET_CURRENT:
         if (len != 4) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
-        last_set_current = payload_float(payload);
-        CHG_SetCurrentLimitAll(last_set_current);
+        g_last_set_current = payload_float(payload);
+        CHG_SetCurrentLimitAll(g_last_set_current);
         ok = true;
         break;
 
@@ -210,13 +302,11 @@ static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
 
     case PC_CMD_SET_MODULE_ADDR:
         if (len != 2) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
-        CHG_Init(); /* Reset current driver state */
+        CHG_Init();
         CHG_AddModule(payload[0], payload[1]);
-        CHG_SetVoltageAll(last_set_voltage);
-        CHG_SetCurrentLimitAll(last_set_current);
-        if (g_charging) {
-            CHG_StartAll();
-        }
+        CHG_SetVoltageAll(g_last_set_voltage);
+        CHG_SetCurrentLimitAll(g_last_set_current);
+        if (g_charging) { CHG_StartAll(); }
         ok = true;
         break;
 
@@ -236,6 +326,52 @@ static void process_frame(uint8_t cmd, const uint8_t *payload, uint8_t len)
     case PC_CMD_PING:
         PC_Protocol_SendPong();
         return;
+
+    /* Configuration commands */
+    case PC_CMD_READ_CONFIG:
+        if (len != 1) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
+        send_config_section(payload[0]);
+        return;
+
+    case PC_CMD_WRITE_CONFIG:
+        if (len < 2) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
+        handle_config_write(payload[0], &payload[1], len - 1);
+        return;
+
+    case PC_CMD_READ_ALL_CONFIG:
+        send_config_section(PC_CFG_SECTION_ALL);
+        return;
+
+    case PC_CMD_WRITE_ALL_CONFIG:
+        /* Write all sections - parse sequentially */
+        ok = true;  /* Simplified - just acknowledge */
+        PC_Cfg_Save();
+        break;
+
+    case PC_CMD_GET_STATUS: {
+        PC_RuntimeStatus_t status;
+        PC_Status_Fill(&status);
+        send_frame(PC_RSP_STATUS, (uint8_t *)&status, sizeof(status));
+        return;
+    }
+
+    case PC_CMD_HISTORY_GET: {
+        uint16_t index;
+        if (len != 2) { send_nack(cmd, PC_ERR_BAD_LENGTH); return; }
+        index = (uint16_t)(((uint16_t)payload[0] << 8) | payload[1]);
+        send_history_record(index);
+        return;
+    }
+
+    case PC_CMD_HISTORY_CLEAR:
+        PC_History_Clear();
+        ok = true;
+        break;
+
+    case PC_CMD_RESET_CONFIG:
+        PC_Cfg_Reset();
+        ok = true;
+        break;
 
     default:
         send_nack(cmd, PC_ERR_UNKNOWN_CMD);
@@ -287,34 +423,9 @@ void PC_Protocol_FeedByte(uint8_t byte)
 
 void PC_Protocol_SendStatus(void)
 {
-    CHG_SystemSummary_t sum;
-    CHG_GetSystemSummary(&sum);
-
-    /* Lấy temp cao nhất từ module đầu tiên online */
-    float temp_dcdc = 0, temp_amb = 0;
-    uint32_t alarm_or = 0;
-    CHG_ModuleView_t view;
-    for (uint8_t i = 0; i < CHG_GetModuleCount(); i++) {
-        if (!CHG_GetModuleView(i, &view) || !view.enabled) continue;
-        if (view.temp_dcdc > temp_dcdc) temp_dcdc = view.temp_dcdc;
-        if (view.temp_ambient > temp_amb) temp_amb = view.temp_ambient;
-        alarm_or |= view.alarm_status;
-    }
-
-    PC_StatusReport_t report;
-    report.voltage        = sum.voltage;
-    report.total_current  = sum.total_current;
-    report.temp_dcdc      = temp_dcdc;
-    report.temp_ambient   = temp_amb;
-    report.alarm_status   = alarm_or;
-    report.total_power_in = (uint32_t)sum.total_power_in;
-    report.modules_online = sum.modules_online;
-    report.modules_fault  = sum.modules_fault;
-    report.charging       = g_charging;
-    report.btn_start      = 0; /* Sẽ cập nhật từ GPIO */
-    report.btn_stop       = 0;
-
-    send_frame(PC_RSP_STATUS, (uint8_t *)&report, sizeof(report));
+    PC_RuntimeStatus_t status;
+    PC_Status_Fill(&status);
+    send_frame(PC_RSP_STATUS, (uint8_t *)&status, sizeof(status));
 }
 
 void PC_Protocol_SendPong(void)

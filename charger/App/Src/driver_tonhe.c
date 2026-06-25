@@ -620,6 +620,8 @@ static void tonhe_get_system_summary(CHG_SystemSummary_t *summary)
 {
     if (summary == NULL) return;
     memset(summary, 0, sizeof(*summary));
+    summary->module_count = g_module_count;
+    summary->running = false;
 
     for (uint8_t i = 0; i < g_module_count; i++) {
         CHG_ModuleView_t *v = &g_modules[i].view;
@@ -629,18 +631,31 @@ static void tonhe_get_system_summary(CHG_SystemSummary_t *summary)
             summary->modules_online++;
             summary->total_current += v->current;
             summary->total_power_in += v->voltage * v->current;
+            summary->running = true;
             if (summary->voltage == 0.0f && v->voltage > 0.0f) {
                 summary->voltage = v->voltage;
             }
         }
 
+        /* Temperature tracking */
+        if (v->temp_dcdc > summary->max_temp_dcdc) {
+            summary->max_temp_dcdc = v->temp_dcdc;
+        }
+        if (v->temp_ambient > summary->max_temp_ambient) {
+            summary->max_temp_ambient = v->temp_ambient;
+        }
+
+        /* Alarms */
         if (v->state == CHG_STATE_FAULT) {
             summary->modules_fault++;
             summary->any_critical = true;
+            summary->module_alarms |= v->alarm_status;
         }
 
         if (v->alarm_flags != CHG_ALARM_NONE) {
             summary->any_critical = true;
+            summary->system_alarms |= (uint32_t)v->alarm_flags;
+            summary->module_alarms |= v->alarm_status;
         }
     }
 }

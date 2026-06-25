@@ -502,28 +502,45 @@ static void mx_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
 
 static void mx_get_system_summary(CHG_SystemSummary_t *summary)
 {
- if (summary == 0) return;
- memset(summary, 0, sizeof(*summary));
+    if (summary == NULL) return;
+    memset(summary, 0, sizeof(*summary));
+    summary->module_count = g_module_count;
+    summary->running = false;
 
- for (uint8_t i = 0; i < g_module_count; i++) {
- CHG_ModuleView_t *v = &g_modules[i].view;
- if (!v->enabled) continue;
- if (v->state == CHG_STATE_RUNNING || v->state == CHG_STATE_STARTING) {
- summary->modules_online++;
- summary->total_current += v->current;
- summary->total_power_in += (float)v->input_power;
- if (summary->voltage == 0.0f && v->voltage > 0.0f) {
- summary->voltage = v->voltage;
- }
- }
- if (v->state == CHG_STATE_FAULT) {
- summary->modules_fault++;
- summary->any_critical = true;
- }
- if (v->alarm_flags != CHG_ALARM_NONE) {
- summary->any_critical = true;
- }
- }
+    for (uint8_t i = 0; i < g_module_count; i++) {
+        CHG_ModuleView_t *v = &g_modules[i].view;
+        if (!v->enabled) continue;
+
+        if (v->state == CHG_STATE_RUNNING || v->state == CHG_STATE_STARTING) {
+            summary->modules_online++;
+            summary->total_current += v->current;
+            summary->total_power_in += (float)v->input_power;
+            summary->running = true;
+            if (summary->voltage == 0.0f && v->voltage > 0.0f) {
+                summary->voltage = v->voltage;
+            }
+        }
+
+        /* Temperature tracking */
+        if (v->temp_dcdc > summary->max_temp_dcdc) {
+            summary->max_temp_dcdc = v->temp_dcdc;
+        }
+        if (v->temp_ambient > summary->max_temp_ambient) {
+            summary->max_temp_ambient = v->temp_ambient;
+        }
+
+        /* Alarms */
+        if (v->state == CHG_STATE_FAULT) {
+            summary->modules_fault++;
+            summary->any_critical = true;
+            summary->module_alarms |= v->alarm_status;
+        }
+        if (v->alarm_flags != CHG_ALARM_NONE) {
+            summary->any_critical = true;
+            summary->system_alarms |= (uint32_t)v->alarm_flags;
+            summary->module_alarms |= v->alarm_status;
+        }
+    }
 }
 
 static uint8_t mx_get_module_count(void)

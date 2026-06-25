@@ -11,6 +11,8 @@
 #include "driver_maxwell.h"
 #include "driver_tonhe.h"
 #include "pc_protocol.h"
+#include "pc_config.h"
+#include "flash_storage.h"
 #include "debug_log.h"
 #include "main.h"
 #include "can.h"
@@ -63,6 +65,10 @@ void App_Init(void)
     /* In banner khởi động */
     LOG_Banner();
     LOG("App_Init: Khoi dong he thong...\r\n");
+    
+    /* Initialize Flash storage and load config */
+    FlashStorage_Init();
+    PC_Cfg_Load();
 
     /* LED tắt hết khi khởi động */
     led_run_off();
@@ -95,9 +101,14 @@ void App_Init(void)
     CHG_RegisterDriver(CHG_DRIVER_MAXWELL, CHG_MaxwellDriverOps());
     CHG_RegisterDriver(CHG_DRIVER_LIANMING, CHG_LianmingDriverOps());
     CHG_RegisterDriver(CHG_DRIVER_TONHE, CHG_TonheDriverOps());
-    CHG_SelectDriver(APP_DEFAULT_DRIVER);
+    PC_CfgSystem_t sys;
+    uint16_t len = sizeof(sys);
+    PC_Cfg_GetSection(PC_CFG_SECTION_SYSTEM, &sys, &len);
+    CHG_SelectDriver((CHG_DriverId_t)sys.driver_id);
+    if (sys.module_count > 0) {
+        CHG_AddModule(APP_MODULE_ADDR, APP_MODULE_GROUP);
+    }
     CHG_Init();
-    CHG_AddModule(APP_MODULE_ADDR, APP_MODULE_GROUP);
 
     /* CAN2 được khởi động ở trên cùng với BMS_Init()
        (BSP_CAN2_Start đã được gọi) */

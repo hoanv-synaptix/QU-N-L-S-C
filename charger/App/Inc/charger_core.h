@@ -77,11 +77,11 @@ typedef enum {
 
 /** Thống kê truyền thông cho 1 module (chuẩn hoá) */
 typedef struct {
- uint32_t tx_count; /* Số frame đã gửi */
- uint32_t rx_count; /* Số response nhận được (OK) */
- uint32_t error_count;  /* Số response lỗi (NACK / parse fail) */
- uint32_t timeout_count; /* Số lần timeout giao tiếp */
- uint32_t recovery_count; /* Số lần recovery thành công */
+    uint32_t tx_count; /* Số frame đã gửi */
+    uint32_t rx_count; /* Số response nhận được (OK) */
+    uint32_t error_count;  /* Số response lỗi (NACK / parse fail) */
+    uint32_t timeout_count; /* Số lần timeout giao tiếp */
+    uint32_t recovery_count; /* Số lần recovery thành công */
 } CHG_CommStats_t;
 
 typedef struct {
@@ -101,16 +101,22 @@ typedef struct {
     uint32_t         input_power;
     uint32_t         last_rx_tick;
     uint32_t         last_tx_tick;
- CHG_CommStats_t stats;
+    CHG_CommStats_t stats;
 } CHG_ModuleView_t;
 
 typedef struct {
     float    total_current;
     float    total_power_in;
     float    voltage;
+    uint8_t  module_count;
     uint8_t  modules_online;
     uint8_t  modules_fault;
+    bool     running;
     bool     any_critical;
+    float    max_temp_dcdc;
+    float    max_temp_ambient;
+    uint32_t system_alarms;
+    uint32_t module_alarms;
 } CHG_SystemSummary_t;
 
 typedef struct {

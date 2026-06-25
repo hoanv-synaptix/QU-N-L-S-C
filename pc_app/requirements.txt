@@ -1,2 +1,4 @@
 pyserial>=3.5
-pyinstaller>=6.0
+PyQt5>=5.15
+pyqtgraph>=0.13
+PyInstaller>=6.0
