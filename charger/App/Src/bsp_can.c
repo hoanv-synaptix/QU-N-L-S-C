@@ -71,15 +71,14 @@ extern CAN_HandleTypeDef hcan2;
 
 bool BSP_CAN2_Start(void)
 {
-    /* Configure filter cho CAN2 (Bank 14 trở đi) */
     CAN_FilterTypeDef filter;
-    filter.FilterBank           = 14; 
+    filter.FilterBank           = 14;
     filter.FilterMode           = CAN_FILTERMODE_IDMASK;
     filter.FilterScale          = CAN_FILTERSCALE_32BIT;
     filter.FilterIdHigh         = 0x0000;
     filter.FilterIdLow          = 0x0000;
     filter.FilterMaskIdHigh     = 0x0000;
-    filter.FilterMaskIdLow      = 0x0000;
+    filter.FilterMaskIdLow      = 0x0000; /* Mask=0 accepts EVERYTHING (both STD and EXT) */
     filter.FilterFIFOAssignment = CAN_RX_FIFO0;
     filter.FilterActivation     = ENABLE;
     filter.SlaveStartFilterBank = 14;
