@@ -72,20 +72,62 @@ extern CAN_HandleTypeDef hcan2;
 bool BSP_CAN2_Start(void)
 {
     CAN_FilterTypeDef filter;
+    
+    /* Helper macros for 32-bit filter mapping */
+    #define EXT_ID_HIGH(id)   (uint16_t)(((id) >> 13) & 0xFFFFU)
+    #define EXT_ID_LOW(id)    (uint16_t)((((id) << 3) | 4U) & 0xFFFFU) /* IDE=1 */
+    
+    /* 1. Bank 14: Standard IDs (16-bit List Mode)
+     * Matches exactly 4 IDs: 0x02F4, 0x04F4, 0x05F4, 0x07F4
+     */
     filter.FilterBank           = 14;
-    filter.FilterMode           = CAN_FILTERMODE_IDMASK;
-    filter.FilterScale          = CAN_FILTERSCALE_32BIT;
-    filter.FilterIdHigh         = 0x0000;
-    filter.FilterIdLow          = 0x0000;
-    filter.FilterMaskIdHigh     = 0x0000;
-    filter.FilterMaskIdLow      = 0x0000; /* Mask=0 accepts EVERYTHING (both STD and EXT) */
+    filter.FilterMode           = CAN_FILTERMODE_IDLIST;
+    filter.FilterScale          = CAN_FILTERSCALE_16BIT;
+    filter.FilterIdHigh         = 0x02F4U << 5;
+    filter.FilterMaskIdHigh     = 0x04F4U << 5;
+    filter.FilterIdLow          = 0x05F4U << 5;
+    filter.FilterMaskIdLow      = 0x07F4U << 5;
     filter.FilterFIFOAssignment = CAN_RX_FIFO0;
     filter.FilterActivation     = ENABLE;
     filter.SlaveStartFilterBank = 14;
+    if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) return false;
 
-    if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) {
-        return false;
-    }
+    /* 2. Bank 15: Extended IDs 1 (32-bit List Mode)
+     * Matches: 0x18F128F4 (BATT_ST2), 0x18F0F472 (ChgRequest)
+     */
+    filter.FilterBank           = 15;
+    filter.FilterMode           = CAN_FILTERMODE_IDLIST;
+    filter.FilterScale          = CAN_FILTERSCALE_32BIT;
+    filter.FilterIdHigh         = EXT_ID_HIGH(0x18F128F4UL);
+    filter.FilterIdLow          = EXT_ID_LOW(0x18F128F4UL);
+    filter.FilterMaskIdHigh     = EXT_ID_HIGH(0x18F0F472UL);
+    filter.FilterMaskIdLow      = EXT_ID_LOW(0x18F0F472UL);
+    if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) return false;
+
+    /* 3. Bank 16: Extended IDs 2 (32-bit List Mode)
+     * Matches: 0x18F528F4 (BmsSwSta), 0x18F228F4 (CELL_TEMP_FULL)
+     */
+    filter.FilterBank           = 16;
+    filter.FilterMode           = CAN_FILTERMODE_IDLIST;
+    filter.FilterScale          = CAN_FILTERSCALE_32BIT;
+    filter.FilterIdHigh         = EXT_ID_HIGH(0x18F528F4UL);
+    filter.FilterIdLow          = EXT_ID_LOW(0x18F528F4UL);
+    filter.FilterMaskIdHigh     = EXT_ID_HIGH(0x18F228F4UL);
+    filter.FilterMaskIdLow      = EXT_ID_LOW(0x18F228F4UL);
+    if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) return false;
+
+    /* 4. Bank 17: Extended IDs 3 (32-bit Mask Mode)
+     * Matches: 0x18E000F4 to 0x18E007F4 (CELL_VOLT_FULL)
+     * Mask ignores bits 16-18 (0x00070000)
+     */
+    filter.FilterBank           = 17;
+    filter.FilterMode           = CAN_FILTERMODE_IDMASK;
+    filter.FilterScale          = CAN_FILTERSCALE_32BIT;
+    filter.FilterIdHigh         = EXT_ID_HIGH(0x18E000F4UL);
+    filter.FilterIdLow          = EXT_ID_LOW(0x18E000F4UL);
+    filter.FilterMaskIdHigh     = EXT_ID_HIGH(0xFFF8FFFFUL);
+    filter.FilterMaskIdLow      = (uint16_t)((((0xFFF8FFFFUL) << 3) | 6U) & 0xFFFFU); /* Mask IDE=1, RTR=0 */
+    if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) return false;
 
     if (HAL_CAN_Start(&hcan2) != HAL_OK) {
         return false;
