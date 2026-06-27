@@ -118,6 +118,7 @@ typedef struct {
  MXR_Setpoint_t setpoint;
  uint32_t state_enter_tick;
  uint8_t retry_count;
+ uint8_t start_attempts;
  uint8_t poll_step;
 } MXR_Internal_t;
 
@@ -210,11 +211,18 @@ static bool send_read(MXR_Internal_t *m, uint16_t reg)
  return send_frame(m, MXR_FUNC_READ, reg, payload);
 }
 
-static void set_state(MXR_Internal_t *m, CHG_ModuleState_t st, uint32_t now)
+static void set_state(MXR_Internal_t *m, CHG_ModuleState_t new_state, uint32_t now)
 {
- m->view.state = st;
- m->state_enter_tick = now;
- m->retry_count = 0;
+    if (m->view.state != new_state) {
+        if (new_state == CHG_STATE_STARTING) {
+            m->start_attempts++;
+        } else {
+            m->start_attempts = 0;
+        }
+        m->view.state = new_state;
+        m->state_enter_tick = now;
+        m->retry_count = 0;
+    }
 }
 
 static MXR_Internal_t *find_by_addr(uint8_t addr)
@@ -312,21 +320,26 @@ static void process_module(MXR_Internal_t *m, uint32_t now)
  break;
 
  case CHG_STATE_STARTING:
- if (m->retry_count == 0) {
- send_set_float(m, CHG_REG_SET_VOLTAGE, m->setpoint.voltage_v);
- m->retry_count++;
- m->state_enter_tick = now;
- } else if (m->retry_count == 1 && (now - m->state_enter_tick) >= 50) {
- send_set_float(m, CHG_REG_SET_CURR_LIMIT, m->setpoint.current_limit);
- m->retry_count++;
- m->state_enter_tick = now;
- } else if (m->retry_count == 2 && (now - m->state_enter_tick) >= 50) {
- send_set_u32(m, CHG_REG_ON_OFF, MXR_CMD_START);
- m->retry_count = 3;
- m->view.last_tx_tick = now;
- } else if (m->retry_count >= 3 && (now - m->view.last_tx_tick) >= 100) {
- set_state(m, CHG_STATE_RUNNING, now);
- }
+        if (m->start_attempts > 3U) {
+            m->view.alarm_flags |= CHG_ALARM_COMM_FAIL; /* Timeout */
+            set_state(m, CHG_STATE_FAULT, now);
+            break;
+        }
+        if (m->retry_count == 0) {
+            send_set_float(m, CHG_REG_SET_VOLTAGE, m->setpoint.voltage_v);
+            m->retry_count++;
+            m->state_enter_tick = now;
+        } else if (m->retry_count == 1 && (now - m->state_enter_tick) >= 50) {
+            send_set_float(m, CHG_REG_SET_CURR_LIMIT, m->setpoint.current_limit);
+            m->retry_count++;
+            m->state_enter_tick = now;
+        } else if (m->retry_count == 2 && (now - m->state_enter_tick) >= 50) {
+            send_set_u32(m, CHG_REG_ON_OFF, MXR_CMD_START);
+            m->retry_count = 3;
+            m->view.last_tx_tick = now;
+        } else if (m->retry_count >= 3 && (now - m->view.last_tx_tick) >= 100) {
+            set_state(m, CHG_STATE_RUNNING, now);
+        }
  break;
 
  case CHG_STATE_RUNNING:

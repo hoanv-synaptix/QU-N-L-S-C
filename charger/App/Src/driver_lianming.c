@@ -135,6 +135,7 @@ typedef struct {
     CHG_ModuleView_t view;
     uint32_t last_state_tick;
     uint8_t retry_count;
+    uint8_t start_attempts;
     bool should_run;
 } LM_Module_t;
 
@@ -191,6 +192,11 @@ static void clear_view(CHG_ModuleView_t *view)
 
 static void set_state(LM_Module_t *mod, CHG_ModuleState_t state, uint32_t now)
 {
+    if (mod->view.state != state && state == CHG_STATE_STARTING) {
+        mod->start_attempts++;
+    } else if (state != CHG_STATE_STARTING) {
+        mod->start_attempts = 0;
+    }
     mod->view.state = state;
     mod->last_state_tick = now;
     mod->retry_count = 0;
@@ -433,6 +439,11 @@ static void process_module(uint8_t idx, uint32_t now)
         break;
 
     case CHG_STATE_STARTING:
+        if (mod->start_attempts > LM_MAX_RETRY) {
+            mod->view.alarm_flags |= CHG_ALARM_COMM_FAIL; /* Timeout */
+            set_state(mod, CHG_STATE_FAULT, now);
+            break;
+        }
         if (mod->retry_count == 0U) {
             /* Set voltage and current together (Lianming format) */
             lm_set_output(idx, mod->view.voltage, mod->view.current_limit * 100.0f);
