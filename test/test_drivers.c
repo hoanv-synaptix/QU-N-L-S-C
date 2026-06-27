@@ -5,6 +5,7 @@
 #include "charger_protocol.h"
 #include "driver_maxwell.h"
 #include "driver_lianming.h"
+#include "driver_tonhe.h"
 #include "bsp_can.h"
 
 // ---------------------------------------------------------
@@ -401,6 +402,155 @@ bool test_lianming_recovery_state() {
 
     return true;
 }
+// ---------------------------------------------------------
+// Test Cases for Tonhe Driver
+// ---------------------------------------------------------
+bool test_tonhe_start_sequence_and_timeout() {
+    const CHG_DriverOps_t *ops = CHG_TonheDriverOps();
+    ops->init();
+    int8_t idx = ops->add_module(1, 0); // addr 1
+    ASSERT(idx == 0, "Failed to add module");
+
+    ops->set_voltage(idx, 100.0f);
+    ops->set_current_limit(idx, 10.0f);
+    
+    // Start module
+    ops->start(idx);
+    
+    clear_tx_queue();
+    // Process step 0: send set output and start
+    ops->process(g_tick);
+    
+    CHG_ModuleView_t view;
+    ops->get_module_view(idx, &view);
+    ASSERT(view.state == CHG_STATE_STARTING, "State should be STARTING");
+    ASSERT(g_tx_count == 2, "Should transmit param set and start command");
+    
+    // Feed M_C_2 (Confirm)
+    uint8_t rx_data[8] = { 0x01, 0, 0, 0, 0, 0, 0, 0 };
+    ops->feed_frame(0x1802A001, rx_data, 8); // PGN=0x0200, Priority=6 -> 0x1802A001
+    ops->process(g_tick);
+    
+    ops->get_module_view(idx, &view);
+    ASSERT(view.state == CHG_STATE_RUNNING, "State should transition to RUNNING");
+    
+    return true;
+}
+
+bool test_tonhe_tx_encoding() {
+    const CHG_DriverOps_t *ops = CHG_TonheDriverOps();
+    ops->init();
+    int8_t idx = ops->add_module(1, 0); // addr 1
+
+    ops->set_voltage(idx, 500.0f);
+    ops->set_current_limit(idx, 41.6f);
+    
+    ops->start(idx);
+    clear_tx_queue();
+    ops->process(g_tick);
+    
+    ASSERT(g_tx_count == 2, "Expected 2 TX frames (param and start)");
+    
+    // Check param set (C_M_2)
+    // Priority = 4, PGN = 0x000400, SA = 0xA0
+    // ID = (4 << 26) | (0 << 24) | (0x04 << 16) | (0x00 << 8) | 0xA0 = 0x100400A0
+    uint32_t param_id = 0x100400A0; // Broadcast 
+    // Wait, tonhe_param_set_id() uses 0x1004FFA0? Let's check in code if it uses FF for PS
+    
+    ASSERT(g_tx_frames[0].data[0] == 0xFF, "Processing flag 1");
+    ASSERT(g_tx_frames[0].data[3] == 0x00, "Group");
+    
+    // Voltage: 500.0V / 0.1V = 5000 = 0x1388 => LSB=0x88, MSB=0x13
+    ASSERT(g_tx_frames[0].data[4] == 0x88, "Voltage LSB");
+    ASSERT(g_tx_frames[0].data[5] == 0x13, "Voltage MSB");
+    
+    // Current: 41.6A / 0.01A = 4160 = 0x1040 => LSB=0x40, MSB=0x10
+    ASSERT(g_tx_frames[0].data[6] == 0x40, "Current LSB");
+    ASSERT(g_tx_frames[0].data[7] == 0x10, "Current MSB");
+    
+    // Check start (C_M_24)
+    // Priority = 2, PGN = 0x000600 -> PF=0x06, PS=0x01 (addr)
+    // ID = (2 << 26) | (0x06 << 16) | (0x01 << 8) | 0xA0 = 0x080601A0
+    ASSERT(g_tx_frames[1].data[0] == 0xAA, "Start command");
+
+    return true;
+}
+
+bool test_tonhe_negative_cases() {
+    const CHG_DriverOps_t *ops = CHG_TonheDriverOps();
+    ops->init();
+    int8_t idx = ops->add_module(1, 0); // addr 1
+    
+    // Wrong address (addr 2 instead of 1)
+    uint8_t rx_data[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    ops->feed_frame(0x1801A002, rx_data, 8); 
+    
+    CHG_ModuleView_t view;
+    ops->get_module_view(idx, &view);
+    ASSERT(view.stats.rx_count == 0, "Should ignore wrong address");
+    
+    return true;
+}
+
+bool test_tonhe_recovery_state() {
+    const CHG_DriverOps_t *ops = CHG_TonheDriverOps();
+    ops->init();
+    int8_t idx = ops->add_module(1, 0);
+    ops->start(idx);
+    
+    // Wait for timeout (OFFLINE_TIMEOUT = 2000ms + CONFIRM_TIMEOUT)
+    // Start sends param+start, then waits 1000ms for confirm, retries 3 times -> 4000ms
+    g_tick = 0;
+    while (g_tick <= 4500) {
+        ops->process(g_tick);
+        g_tick += 50;
+    }
+    
+    CHG_ModuleView_t view;
+    ops->get_module_view(idx, &view);
+    ASSERT(view.state == CHG_STATE_OFFLINE, "Should enter OFFLINE after timeout");
+    
+    // Simulate RECOVERY_DELAY (3s = 3000ms)
+    g_tick += 3050;
+    ops->process(g_tick);
+    ops->get_module_view(idx, &view);
+    ASSERT(view.state == CHG_STATE_RECOVERING, "Should enter RECOVERING");
+    
+    // Feed M_C_1 (Status) to recover
+    uint8_t rx_data[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    ops->feed_frame(0x1801A001, rx_data, 8);
+    ops->process(g_tick);
+    ops->get_module_view(idx, &view);
+    ASSERT(view.state == CHG_STATE_STARTING || view.state == CHG_STATE_RUNNING, "Should recover");
+
+    return true;
+}
+
+bool test_tonhe_data_parsing() {
+    const CHG_DriverOps_t *ops = CHG_TonheDriverOps();
+    ops->init();
+    int8_t idx = ops->add_module(1, 0);
+    
+    // Feed M_C_1 (Status)
+    // Byte 1-2: Output status (0x01 = ON, 0x00 = OFF) -> 0x01
+    // Byte 3-4: Voltage (0.1V/bit) -> 53.5V = 535 = 0x0217 -> 17 02
+    // Byte 5-6: Current (0.01A/bit) -> 10.0A = 1000 = 0x03E8 -> E8 03
+    // Byte 7-8: Alarm bits -> Bit 4 (Output overcurrent) -> 0x10 0x00
+    uint8_t rx_data[8] = { 0x01, 0x00, 0x17, 0x02, 0xE8, 0x03, 0x10, 0x00 };
+    ops->feed_frame(0x1801A001, rx_data, 8);
+    ops->process(g_tick);
+    
+    CHG_ModuleView_t view;
+    ops->get_module_view(idx, &view);
+    
+    ASSERT(view.stats.rx_count == 1, "Should receive 1 valid frame");
+    ASSERT(view.voltage > 53.4f && view.voltage < 53.6f, "Parsed voltage wrong");
+    ASSERT(view.current > 9.9f && view.current < 10.1f, "Parsed current wrong");
+    ASSERT(view.running == true, "Should be running");
+    ASSERT((view.alarm_flags & CHG_ALARM_OVER_CURR_OUT) != 0, "Alarm flags should include OVER_CURR_OUT");
+    
+    return true;
+}
 
 int main() {
     printf("==========================================\n");
@@ -418,6 +568,12 @@ int main() {
     RUN_TEST(test_lianming_negative_cases);
     RUN_TEST(test_lianming_recovery_state);
     RUN_TEST(test_lianming_data_parsing);
+    
+    RUN_TEST(test_tonhe_start_sequence_and_timeout);
+    RUN_TEST(test_tonhe_tx_encoding);
+    RUN_TEST(test_tonhe_negative_cases);
+    RUN_TEST(test_tonhe_recovery_state);
+    RUN_TEST(test_tonhe_data_parsing);
     
     printf("\n==========================================\n");
     if (failed_tests == 0) {

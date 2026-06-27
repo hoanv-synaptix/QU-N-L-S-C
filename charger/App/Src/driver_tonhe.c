@@ -175,7 +175,7 @@ static void send_specific_start_stop(TONHE_Internal_t *mod, bool start)
     frame.data[2] = (uint8_t)(voltage_raw & 0xFF);
     frame.data[3] = (uint8_t)((voltage_raw >> 8) & 0xFF);
     /* Byte 5-6: Current (0.01A/bit) */
-    uint16_t current_raw = (uint16_t)(mod->view.current_limit * 100.0f / TONHE_CURRENT_SCALE);
+    uint16_t current_raw = (uint16_t)(mod->view.current_limit / TONHE_CURRENT_SCALE);
     frame.data[4] = (uint8_t)(current_raw & 0xFF);
     frame.data[5] = (uint8_t)((current_raw >> 8) & 0xFF);
     /* Byte 7-8: Reserved */
@@ -207,7 +207,7 @@ static void send_param_set(TONHE_Internal_t *mod)
     frame.data[4] = (uint8_t)(voltage_raw & 0xFF);
     frame.data[5] = (uint8_t)((voltage_raw >> 8) & 0xFF);
     /* Byte 7-8: Current */
-    uint16_t current_raw = (uint16_t)(mod->view.current_limit * 100.0f / TONHE_CURRENT_SCALE);
+    uint16_t current_raw = (uint16_t)(mod->view.current_limit / TONHE_CURRENT_SCALE);
     frame.data[6] = (uint8_t)(current_raw & 0xFF);
     frame.data[7] = (uint8_t)((current_raw >> 8) & 0xFF);
 
@@ -592,24 +592,21 @@ static void tonhe_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
     /* Extract source address (SA) = lower 8 bits */
     uint8_t src_addr = (uint8_t)(ext_id & 0xFF);
 
-    /* Extract PGN (PF << 8 | PS, masked) */
     uint16_t pf = (uint16_t)((ext_id >> 16) & 0xFF);
-    uint16_t ps = (uint16_t)((ext_id >> 8) & 0xFF);
-    uint16_t pgn = (pf << 8) | ps;
-
+    
     uint32_t now = now_tick();
 
-    switch (pgn) {
-    case 0x0001:  /* M_C_1: Status */
+    switch (pf) {
+    case 0x01:  /* M_C_1: Status */
         parse_status(data, src_addr, now);
         break;
-    case 0x0002:  /* M_C_2: Confirm */
+    case 0x02:  /* M_C_2: Confirm */
         parse_confirm(data, src_addr, now);
         break;
-    case 0x000B:  /* M_C_3: AC Phase */
+    case 0x0B:  /* M_C_3: AC Phase */
         parse_ac_phase(data, src_addr, now);
         break;
-    case 0x0091:  /* M_C_4: Extended */
+    case 0x91:  /* M_C_4: Extended */
         parse_extended(data, src_addr, now);
         break;
     default:
