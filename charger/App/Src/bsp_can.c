@@ -118,15 +118,15 @@ bool BSP_CAN2_Start(void)
 
     /* 4. Bank 17: Extended IDs 3 (32-bit Mask Mode)
      * Matches: 0x18E000F4 to 0x18E007F4 (CELL_VOLT_FULL)
-     * Mask ignores bits 16-18 (0x00070000)
+     * Mask ignores bits 8-10 (0x00000700) where the index is stored
      */
     filter.FilterBank           = 17;
     filter.FilterMode           = CAN_FILTERMODE_IDMASK;
     filter.FilterScale          = CAN_FILTERSCALE_32BIT;
     filter.FilterIdHigh         = EXT_ID_HIGH(0x18E000F4UL);
     filter.FilterIdLow          = EXT_ID_LOW(0x18E000F4UL);
-    filter.FilterMaskIdHigh     = EXT_ID_HIGH(0xFFF8FFFFUL);
-    filter.FilterMaskIdLow      = (uint16_t)((((0xFFF8FFFFUL) << 3) | 6U) & 0xFFFFU); /* Mask IDE=1, RTR=0 */
+    filter.FilterMaskIdHigh     = EXT_ID_HIGH(0xFFFFF8FFUL);
+    filter.FilterMaskIdLow      = (uint16_t)((((0xFFFFF8FFUL) << 3) | 6U) & 0xFFFFU); /* Mask IDE=1, RTR=0 */
     if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK) return false;
 
     if (HAL_CAN_Start(&hcan2) != HAL_OK) {

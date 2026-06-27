@@ -403,10 +403,10 @@ def test_strict_filter():
     bank16.config_32bit(ext_id_high(0x18F528F4), ext_id_low(0x18F528F4),
                         ext_id_high(0x18F228F4), ext_id_low(0x18F228F4))
 
-    # Bank 17: 32-bit Mask for 0x18E000F4 (masking bits 16-18)
+    # Bank 17: 32-bit Mask for 0x18E000F4 (masking bits 8-10)
     bank17 = bxCANFilter()
     bank17.config_32bit(ext_id_high(0x18E000F4), ext_id_low(0x18E000F4),
-                        ext_id_high(0xFFF8FFFF), (((0xFFF8FFFF << 3) | 6) & 0xFFFF))
+                        ext_id_high(0xFFFFF8FF), (((0xFFFFF8FF << 3) | 6) & 0xFFFF))
 
     filters = [bank14, bank15, bank16, bank17]
 
