@@ -249,11 +249,11 @@ void BMS_Process(uint32_t now_tick)
             if (elapsed >= BMS_STALE_THRESHOLD_MS) {
                 g_bms_view.alarm_flags |= BMS_ALARM_STALE_DATA;
             }
-        }
-
-        /* Check for critical alarms */
-        if (g_bms_view.alarm_flags != BMS_ALARM_NONE) {
-            /* Could transition to FAULT here if needed */
+            /* Check for critical alarms */
+            if (g_bms_view.alarm_flags != BMS_ALARM_NONE) {
+                g_bms_state = BMS_STATE_FAULT;
+                LOG("BMS: FAULT\r\n");
+            }
         }
     }
     else if (g_bms_state == BMS_STATE_FAULT) {
