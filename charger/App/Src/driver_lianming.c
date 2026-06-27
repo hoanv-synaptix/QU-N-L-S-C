@@ -159,7 +159,7 @@ static CHG_AlarmFlag_t parse_lianming_alarm(uint16_t raw_alarm)
     if (raw_alarm & (1U << 7)) flags |= CHG_ALARM_HW_FAULT;         /* Output under-voltage */
     
     /* Byte 6 bits (8-15 in raw_alarm) */
-    if (raw_alarm & (1U << 8)) flags |= CHG_ALARM_SHORT_CIRCUIT;    /* Overcurrent protection */
+    if (raw_alarm & (1U << 8)) flags |= CHG_ALARM_OVER_CURR_OUT;    /* Overcurrent protection */
     if (raw_alarm & (1U << 9)) flags |= CHG_ALARM_OVER_TEMP;        /* Over temperature */
     
     return flags;

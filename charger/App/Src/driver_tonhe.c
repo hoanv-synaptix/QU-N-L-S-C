@@ -129,7 +129,7 @@ static CHG_AlarmFlag_t tonhe_parse_fault(uint16_t fault_bits, uint8_t pfc_bits)
     if (fault_bits & (1U << 1)) flags |= CHG_ALARM_AC_UNDER_VOLT;      /* Input phase loss */
     if (fault_bits & (1U << 2)) flags |= CHG_ALARM_OVER_VOLTAGE_OUT;    /* Input overvoltage */
     if (fault_bits & (1U << 3)) flags |= CHG_ALARM_OVER_VOLTAGE_OUT;    /* Output overvoltage */
-    if (fault_bits & (1U << 4)) flags |= CHG_ALARM_HW_FAULT;           /* Output overcurrent */
+    if (fault_bits & (1U << 4)) flags |= CHG_ALARM_OVER_CURR_OUT;      /* Output overcurrent */
     if (fault_bits & (1U << 5)) flags |= CHG_ALARM_OVER_TEMP;          /* Temperature high */
     if (fault_bits & (1U << 6)) flags |= CHG_ALARM_HW_FAULT;           /* Fan fault */
     if (fault_bits & (1U << 7)) flags |= CHG_ALARM_HW_FAULT;           /* Hardware fault */

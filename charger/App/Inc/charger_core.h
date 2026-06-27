@@ -73,6 +73,7 @@ typedef enum {
     CHG_ALARM_OVER_VOLTAGE_OUT = (1 << 3), /* Quá áp đầu ra */
     CHG_ALARM_SHORT_CIRCUIT    = (1 << 4), /* Ngắn mạch */
     CHG_ALARM_AC_UNDER_VOLT    = (1 << 5), /* Áp đầu vào thấp */
+    CHG_ALARM_OVER_CURR_OUT    = (1 << 6), /* Quá dòng đầu ra */
 } CHG_AlarmFlag_t;
 
 /** Thống kê truyền thông cho 1 module (chuẩn hoá) */
