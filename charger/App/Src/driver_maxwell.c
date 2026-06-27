@@ -74,24 +74,26 @@
 #define MXR_REG_OVP_RESET 0x0031
 #define MXR_REG_ALTITUDE_RD 0x004A
 
-/* Vendor-specific alarm bits */
-#define MXR_ALARM_MODULE_FAULT (1U << 0)
-#define MXR_ALARM_MODULE_PROTECT (1U << 1)
-#define MXR_ALARM_INPUT_ERROR  (1U << 4)
-#define MXR_ALARM_SCI_FAILURE (1U << 6)
-#define MXR_ALARM_DCDC_OV (1U << 8)
-#define MXR_ALARM_PFC_ABNORMAL (1U << 9)
-#define MXR_ALARM_AC_UNDERVOLTAGE (1U << 14)
-#define MXR_ALARM_CAN_FAILURE (1U << 16)
-#define MXR_ALARM_CURR_IMBALANCE (1U << 17)
-#define MXR_ALARM_DCDC_OFF (1U << 22)
-#define MXR_ALARM_POWER_LIMIT (1U << 23)
-#define MXR_ALARM_TEMP_DERATING (1U << 24)
-#define MXR_ALARM_AC_POWER_LIMIT (1U << 25)
-#define MXR_ALARM_FAN_FAILURE (1U << 27)
-#define MXR_ALARM_SHORT_CIRCUIT (1U << 28)
-#define MXR_ALARM_DCDC_OVERTEMP (1U << 30)
-#define MXR_ALARM_DCDC_OUTPUT_OV (1U << 31)
+/* Vendor-specific alarm bits (Theo Maxwell.md) */
+#define MXR_ALARM_MODULE_FAULT      (1U << 0)
+#define MXR_ALARM_MODULE_PROTECT    (1U << 1)
+#define MXR_ALARM_SCI_FAILURE       (1U << 3)
+#define MXR_ALARM_INPUT_ERROR       (1U << 4)
+#define MXR_ALARM_INPUT_MISMATCH    (1U << 5)
+#define MXR_ALARM_DCDC_OV           (1U << 7)
+#define MXR_ALARM_PFC_ABNORMAL      (1U << 8)
+#define MXR_ALARM_AC_OV             (1U << 9)
+#define MXR_ALARM_AC_UNDERVOLTAGE   (1U << 14)
+#define MXR_ALARM_CAN_FAILURE       (1U << 16)
+#define MXR_ALARM_CURR_IMBALANCE    (1U << 17)
+#define MXR_ALARM_DCDC_OFF          (1U << 22)
+#define MXR_ALARM_POWER_LIMIT       (1U << 23)
+#define MXR_ALARM_TEMP_DERATING     (1U << 24)
+#define MXR_ALARM_AC_POWER_LIMIT    (1U << 25)
+#define MXR_ALARM_FAN_FAILURE       (1U << 27)
+#define MXR_ALARM_SHORT_CIRCUIT     (1U << 28)
+#define MXR_ALARM_DCDC_OVERTEMP     (1U << 30)
+#define MXR_ALARM_DCDC_OUTPUT_OV    (1U << 31)
 
 #define MXR_ALARM_CRITICAL_MASK (MXR_ALARM_MODULE_FAULT | \
  MXR_ALARM_DCDC_OV | \
@@ -494,7 +496,7 @@ static void mx_process(uint32_t now)
 static void mx_feed_frame(uint32_t ext_id, const uint8_t *data, uint8_t dlc)
 {
  if (dlc < 8 || data == 0) return;
- uint8_t src_addr = (uint8_t)((ext_id >> 1) & 0xFF);
+ uint8_t src_addr = (uint8_t)((ext_id >> 3) & 0xFF);
  MXR_Internal_t *m = find_by_addr(src_addr);
  if (m == NULL) return;
  apply_response(m, data, now_tick());
