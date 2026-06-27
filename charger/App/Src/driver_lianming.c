@@ -194,7 +194,7 @@ static void set_state(LM_Module_t *mod, CHG_ModuleState_t state, uint32_t now)
 {
     if (mod->view.state != state && state == CHG_STATE_STARTING) {
         mod->start_attempts++;
-    } else if (state != CHG_STATE_STARTING) {
+    } else if (state == CHG_STATE_IDLE || state == CHG_STATE_OFFLINE || state == CHG_STATE_FAULT) {
         mod->start_attempts = 0;
     }
     mod->view.state = state;
@@ -202,7 +202,7 @@ static void set_state(LM_Module_t *mod, CHG_ModuleState_t state, uint32_t now)
     mod->retry_count = 0;
     switch (state) {
     case CHG_STATE_IDLE:
-        mod->view.online = false;
+        mod->view.online = true;
         mod->view.running = false;
         break;
     case CHG_STATE_STARTING:
@@ -353,30 +353,8 @@ static void sync_state_from_flags(LM_Module_t *mod, uint32_t now)
 {
     bool fault = mod->view.alarm_flags != CHG_ALARM_NONE;
     bool recovering = (mod->view.state == CHG_STATE_RECOVERING);
-    mod->view.state = lm_state_from_flags(mod, fault, recovering);
-    switch (mod->view.state) {
-    case CHG_STATE_RUNNING:
-        mod->view.online = true;
-        mod->view.running = true;
-        break;
-    case CHG_STATE_STARTING:
-        mod->view.online = true;
-        mod->view.running = false;
-        break;
-    case CHG_STATE_IDLE:
-        mod->view.online = true;
-        mod->view.running = false;
-        break;
-    case CHG_STATE_OFFLINE:
-    case CHG_STATE_RECOVERING:
-        mod->view.online = false;
-        mod->view.running = false;
-        break;
-    case CHG_STATE_FAULT:
-        mod->view.online = true;
-        mod->view.running = false;
-        break;
-    }
+    CHG_ModuleState_t new_state = lm_state_from_flags(mod, fault, recovering);
+    set_state(mod, new_state, now);
     mod->view.last_rx_tick = now;
 }
 
@@ -400,7 +378,8 @@ static void apply_status(uint8_t idx, const uint8_t *data, uint32_t now)
     /* Byte 6-7: Status flags */
     uint16_t status_flags = CHG_ProtocolBEToU16(&data[6]);
     mod->view.alarm_status = status_flags;
-    mod->view.alarm_flags = parse_lianming_alarm(status_flags);
+    /* Preserve COMM_FAIL from software timeout */
+    mod->view.alarm_flags = parse_lianming_alarm(status_flags) | (mod->view.alarm_flags & CHG_ALARM_COMM_FAIL);
 
     /* Running state: bit 0 of status = 0 means running */
     mod->view.running = ((status_flags & 0x01U) == 0U);

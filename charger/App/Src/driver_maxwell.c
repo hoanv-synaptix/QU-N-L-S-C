@@ -216,12 +216,38 @@ static void set_state(MXR_Internal_t *m, CHG_ModuleState_t new_state, uint32_t n
     if (m->view.state != new_state) {
         if (new_state == CHG_STATE_STARTING) {
             m->start_attempts++;
-        } else {
+        } else if (new_state == CHG_STATE_IDLE || new_state == CHG_STATE_OFFLINE || new_state == CHG_STATE_FAULT) {
             m->start_attempts = 0;
         }
         m->view.state = new_state;
         m->state_enter_tick = now;
         m->retry_count = 0;
+        switch (new_state) {
+        case CHG_STATE_IDLE:
+            m->view.online = true;
+            m->view.running = false;
+            break;
+        case CHG_STATE_STARTING:
+            m->view.online = true;
+            m->view.running = false;
+            break;
+        case CHG_STATE_RUNNING:
+            m->view.online = true;
+            m->view.running = true;
+            break;
+        case CHG_STATE_OFFLINE:
+            m->view.online = false;
+            m->view.running = false;
+            break;
+        case CHG_STATE_FAULT:
+            m->view.online = true;
+            m->view.running = false;
+            break;
+        case CHG_STATE_RECOVERING:
+            m->view.online = false;
+            m->view.running = false;
+            break;
+        }
     }
 }
 
@@ -263,14 +289,18 @@ static void apply_response(MXR_Internal_t *m, const uint8_t *data, uint32_t now)
  }
 
  switch (reg) {
- case CHG_REG_VOLTAGE: m->view.voltage = CHG_ProtocolBEToFloat(&data[4]); break;
+ case CHG_REG_VOLTAGE: { 
+     m->view.voltage = CHG_ProtocolBEToFloat(&data[4]); 
+     break; 
+ }
  case CHG_REG_CURRENT: m->view.current = CHG_ProtocolBEToFloat(&data[4]); break;
  case CHG_REG_CURR_LIMIT: m->view.current_limit = CHG_ProtocolBEToFloat(&data[4]); break;
  case CHG_REG_TEMP_DCDC: m->view.temp_dcdc = CHG_ProtocolBEToFloat(&data[4]); break;
  case CHG_REG_TEMP_AMBIENT: m->view.temp_ambient = CHG_ProtocolBEToFloat(&data[4]); break;
  case CHG_REG_ALARM_STATUS: {
  m->view.alarm_status = CHG_ProtocolBEToU32(&data[4]);
- m->view.alarm_flags = parse_maxwell_alarm(m->view.alarm_status);
+ /* Preserve COMM_FAIL from software timeout */
+ m->view.alarm_flags = parse_maxwell_alarm(m->view.alarm_status) | (m->view.alarm_flags & CHG_ALARM_COMM_FAIL);
  break;
  }
  case CHG_REG_INPUT_POWER: {
@@ -448,9 +478,14 @@ static bool mx_set_current_limit(uint8_t idx, float current_a)
 
 static bool mx_start(uint8_t idx)
 {
- if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
- g_modules[idx].setpoint.should_run = true;
- return true;
+    extern uint32_t HAL_GetTick(void);
+    uint32_t now = HAL_GetTick();
+    if (idx >= g_module_count || !g_modules[idx].view.enabled) return false;
+    g_modules[idx].setpoint.should_run = true;
+    if (g_modules[idx].view.state == CHG_STATE_IDLE) {
+        set_state(&g_modules[idx], CHG_STATE_STARTING, now);
+    }
+    return true;
 }
 
 static bool mx_stop(uint8_t idx)
