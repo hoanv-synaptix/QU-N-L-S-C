@@ -54,11 +54,11 @@ static void parse_cell_volt(const uint8_t *d, BMS_CellVolt_t *out)
 /* ---- CELL_TEMP: ID=0x05F4, 500ms ---- */
 static void parse_cell_temp(const uint8_t *d, BMS_CellTemp_t *out)
 {
-    out->max_cell_temp = (int8_t)d[0];
+    out->max_cell_temp = d[0];
     out->max_ct_no     = d[1];
-    out->min_cell_temp = (int8_t)d[2];
+    out->min_cell_temp = d[2];
     out->min_ct_no     = d[3];
-    out->avg_cell_temp = (int8_t)d[4];
+    out->avg_cell_temp = d[4];
     out->valid         = true;
 }
 
@@ -129,14 +129,14 @@ static void parse_cell_volt_full(const uint8_t *d, uint8_t frame_idx,
 /* ---- CELL_TEMP_FULL: ID=0x18F228F4, 1000ms ---- */
 static void parse_cell_temp_full(const uint8_t *d, BMS_CellTempFull_t *out)
 {
-    out->temp_relay        = (int8_t)d[0];
-    out->temp_shunt        = (int8_t)d[1];
-    out->cell_temp[0]     = (int8_t)d[2];
-    out->cell_temp[1]     = (int8_t)d[3];
-    out->cell_temp[2]     = (int8_t)d[4];
-    out->cell_temp[3]     = (int8_t)d[5];
-    out->cell_temp[4]     = (int8_t)d[6];
-    out->cell_temp[5]     = (int8_t)d[7];
+    out->temp_relay        = d[0];
+    out->temp_shunt        = d[1];
+    out->cell_temp[0]     = d[2];
+    out->cell_temp[1]     = d[3];
+    out->cell_temp[2]     = d[4];
+    out->cell_temp[3]     = d[5];
+    out->cell_temp[4]     = d[6];
+    out->cell_temp[5]     = d[7];
     out->valid            = true;
 }
 

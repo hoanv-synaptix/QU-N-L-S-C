@@ -98,13 +98,18 @@ typedef struct {
     /* Cell status */
     uint16_t max_cell_volt;  /* mV */
     uint16_t min_cell_volt;  /* mV */
-    int8_t  max_cell_temp;   /* °C (already physical) */
-    int8_t  min_cell_temp;   /* °C */
-    int8_t  avg_cell_temp;   /* °C */
+    int8_t  max_cell_temp;   /* °C, physical */
+    int8_t  min_cell_temp;   /* °C, physical */
+    int8_t  avg_cell_temp;   /* °C, physical */
     uint8_t  max_cv_no;      /* 1-based cell number */
     uint8_t  min_cv_no;      /* 1-based cell number */
     uint8_t  max_ct_no;      /* 1-based temp sensor number */
     uint8_t  min_ct_no;      /* 1-based temp sensor number */
+
+    /* Detailed temperatures from CELL_TEMP_FULL */
+    int8_t   temp_relay;      /* °C, physical */
+    int8_t   temp_shunt;      /* °C, physical */
+    int8_t   cell_temp[6];    /* °C, 6 cell temperatures */
 
     /* Relay status */
     bool charge_relay_closed;

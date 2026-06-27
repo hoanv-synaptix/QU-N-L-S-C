@@ -56,7 +56,7 @@ static void update_view_from_data(void)
         v->min_cv_no     = g_bms_data.cell_volt.min_cv_no;
     }
 
-    /* CELL_TEMP: raw = Temp + 50, so physical = raw - 50 */
+    /* CELL_TEMP: raw = Temp + 50, physical = raw - 50 */
     if (g_bms_data.cell_temp.valid) {
         v->max_cell_temp = BMS_RAW_TO_TEMP(g_bms_data.cell_temp.max_cell_temp);
         v->min_cell_temp = BMS_RAW_TO_TEMP(g_bms_data.cell_temp.min_cell_temp);
@@ -65,10 +65,19 @@ static void update_view_from_data(void)
         v->min_ct_no     = g_bms_data.cell_temp.min_ct_no;
     }
 
-    /* ChgRequest: Volt/Curr request = raw × 0.1 (same format as voltage) */
+    /* CELL_TEMP_FULL: detailed temperature (relay, shunt, 6 cells) */
+    if (g_bms_data.cell_temp_full.valid) {
+        v->temp_relay   = BMS_RAW_TO_TEMP(g_bms_data.cell_temp_full.temp_relay);
+        v->temp_shunt   = BMS_RAW_TO_TEMP(g_bms_data.cell_temp_full.temp_shunt);
+        for (uint8_t i = 0U; i < 6U; i++) {
+            v->cell_temp[i] = BMS_RAW_TO_TEMP(g_bms_data.cell_temp_full.cell_temp[i]);
+        }
+    }
+
+    /* ChgRequest: Volt/Curr request = raw × 0.1 */
     if (g_bms_data.chg_request.valid) {
         v->chg_volt_request = BMS_RAW_TO_VOLT(g_bms_data.chg_request.batt_volt_req);
-        v->chg_curr_request = BMS_RAW_TO_VOLT(g_bms_data.chg_request.batt_curr_req);
+        v->chg_curr_request = BMS_RAW_TO_REQ_CURR(g_bms_data.chg_request.batt_curr_req);
     }
 
     /* BmsSwSta */
@@ -178,7 +187,7 @@ void BMS_Init(void)
     memset(&g_charge_ctrl, 0, sizeof(g_charge_ctrl));
 
     g_bms_state          = BMS_STATE_OFFLINE;
-    g_last_valid_rx_tick = 0U;
+    g_last_valid_rx_tick = HAL_GetTick();
     g_last_ctrl_tx_tick  = 0U;
     g_initialized        = true;
 
@@ -231,6 +240,8 @@ void BMS_Process(uint32_t now_tick)
             g_bms_state = BMS_STATE_OFFLINE;
             g_bms_view.online = false;
             g_bms_view.alarm_flags |= BMS_ALARM_BMS_OFFLINE;
+            /* Clear all parsed data so stale values are not used */
+            memset(&g_bms_data, 0, sizeof(g_bms_data));
             LOG("BMS: OFFLINE (timeout)\r\n");
         } else {
             /* Update online status */

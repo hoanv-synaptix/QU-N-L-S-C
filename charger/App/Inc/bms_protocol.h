@@ -85,11 +85,11 @@ typedef struct {
 /* ---- CELL_TEMP (0x05F4) ---- */
 typedef struct {
     BMS_ParseResult_t valid;
-    int8_t  max_cell_temp;  /* °C, raw = Temp + 50 (-50~200°C) */
+    uint8_t max_cell_temp;  /* raw = Temp + 50 (0~250, range -50~200°C) */
     uint8_t max_ct_no;      /* 1-based position of max temp sensor */
-    int8_t  min_cell_temp;  /* °C, raw = Temp + 50 */
+    uint8_t min_cell_temp;  /* raw = Temp + 50 */
     uint8_t min_ct_no;      /* 1-based position of min temp sensor */
-    int8_t  avg_cell_temp;  /* °C, raw = Avg + 50 */
+    uint8_t avg_cell_temp;  /* raw = Avg + 50 */
 } BMS_CellTemp_t;
 
 /* ---- ALM_INFO (0x07F4) ---- */
@@ -145,9 +145,9 @@ typedef struct {
 /* ---- CELL_TEMP_FULL (0x18F228F4) ---- */
 typedef struct {
     BMS_ParseResult_t valid;
-    int8_t  temp_relay;     /* °C, raw = T + 50 */
-    int8_t  temp_shunt;     /* °C, raw = T + 50 */
-    int8_t  cell_temp[6];   /* °C, 6 cell temperatures */
+    uint8_t temp_relay;     /* raw = T + 50 (range -50~200°C) */
+    uint8_t temp_shunt;     /* raw = T + 50 */
+    uint8_t cell_temp[6];   /* raw = T + 50, 6 cell temperatures */
 } BMS_CellTempFull_t;
 
 /* ============== Control Info (Charger → BMS) ============== */
@@ -190,8 +190,9 @@ typedef struct {
 /* Raw → Physical conversions */
 #define BMS_RAW_TO_VOLT(raw)        (((float)(raw)) * 0.1f)
 #define BMS_RAW_TO_CURR(raw)        (((float)((int16_t)(raw))) * 0.1f - 400.0f)
-#define BMS_RAW_TO_TEMP(raw)        (((float)((int8_t)(raw))) - 50.0f)
+#define BMS_RAW_TO_TEMP(raw)        (((float)((uint8_t)(raw))) - 50.0f)
 #define BMS_RAW_TO_CAP_AH(raw)      (((float)(raw)) * 0.1f)
+#define BMS_RAW_TO_REQ_CURR(raw)    (((float)(raw)) * 0.1f)
 
 /* ============== Parsing API ============== */
 
