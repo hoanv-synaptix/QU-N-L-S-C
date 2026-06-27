@@ -54,8 +54,8 @@
 #define LM_MODULE_MAX_ADDR       60U
 
 /* CAN ID Base Addresses */
-#define LM_CMD_BASE             0x1907C0U    /* Command TX ID base */
-#define LM_RESP_BASE            0x1807C0U    /* Response RX ID base */
+#define LM_CMD_BASE             0x1907C080U    /* Command TX ID base */
+#define LM_RESP_BASE            0x1807C080U    /* Response RX ID base */
 
 /* Command Codes (Byte 0 of data) */
 #define LM_CMD_SET_OUTPUT       0x00U        /* Set voltage/current */
@@ -87,8 +87,8 @@
 /**
  * @brief  Build TX CAN ID for Lianming
  * @note   Format: Command ID (14 bits) | Module Address (7 bits)
- *         TX: 0x1907C0 + addr
- *         RX: 0x1807C0 + addr
+ *         TX: 0x1907C080 + addr
+ *         RX: 0x1807C080 + addr
  * @param  module_addr  Module address (1-60, 0 for broadcast)
  * @param  is_response  true for response ID, false for command ID
  * @retval 29-bit CAN ID
@@ -121,12 +121,12 @@ static float lm_payload_to_voltage(const uint8_t *data)
 
 /**
  * @brief  Convert Lianming current payload to float (A)
- * @note   Response format: bytes 2-3 = current (0.01A/bit)
+ * @note   Response format: bytes 2-3 = current (0.1A/bit)
  */
 static float lm_payload_to_current(const uint8_t *data)
 {
     uint16_t value = CHG_ProtocolBEToU16(&data[2]);  /* Current at bytes 2-3 */
-    return (float)value / 100.0f;  /* 0.01A/bit -> A */
+    return (float)value / 10.0f;  /* 0.1A/bit -> A (Fixed from 100.0f) */
 }
 
 /* ============== Internal Types ============== */
@@ -144,17 +144,23 @@ static uint8_t g_rr_index = 0;
 
 /* Note: Lianming uses CMD=1 to read all status at once, no need for poll registers */
 
-static CHG_AlarmFlag_t parse_lianming_alarm(uint32_t raw_alarm)
+static CHG_AlarmFlag_t parse_lianming_alarm(uint16_t raw_alarm)
 {
     CHG_AlarmFlag_t flags = CHG_ALARM_NONE;
-    if (raw_alarm & (1UL << 0))  flags |= CHG_ALARM_HW_FAULT;
-    if (raw_alarm & (1UL << 3))  flags |= CHG_ALARM_COMM_FAIL;
-    if (raw_alarm & (1UL << 7))  flags |= CHG_ALARM_HW_FAULT; /* PFC abnormal */
-    if (raw_alarm & (1UL << 14)) flags |= CHG_ALARM_AC_UNDER_VOLT;
-    if (raw_alarm & (1UL << 16)) flags |= CHG_ALARM_COMM_FAIL;
-    if (raw_alarm & (1UL << 28)) flags |= CHG_ALARM_SHORT_CIRCUIT;
-    if (raw_alarm & (1UL << 30)) flags |= CHG_ALARM_OVER_TEMP;
-    if (raw_alarm & (1UL << 31)) flags |= CHG_ALARM_OVER_VOLTAGE_OUT;
+    /* raw_alarm is (Byte6 << 8) | Byte7 */
+    
+    /* Byte 7 bits (0-7 in raw_alarm) */
+    if (raw_alarm & (1U << 1)) flags |= CHG_ALARM_HW_FAULT;         /* Module fault */
+    if (raw_alarm & (1U << 3)) flags |= CHG_ALARM_HW_FAULT;         /* Fan fault */
+    if (raw_alarm & (1U << 4)) flags |= CHG_ALARM_HW_FAULT;         /* Input overvoltage */
+    if (raw_alarm & (1U << 5)) flags |= CHG_ALARM_AC_UNDER_VOLT;    /* Input under-voltage */
+    if (raw_alarm & (1U << 6)) flags |= CHG_ALARM_OVER_VOLTAGE_OUT; /* Output overvoltage */
+    if (raw_alarm & (1U << 7)) flags |= CHG_ALARM_HW_FAULT;         /* Output under-voltage */
+    
+    /* Byte 6 bits (8-15 in raw_alarm) */
+    if (raw_alarm & (1U << 8)) flags |= CHG_ALARM_SHORT_CIRCUIT;    /* Overcurrent protection */
+    if (raw_alarm & (1U << 9)) flags |= CHG_ALARM_OVER_TEMP;        /* Over temperature */
+    
     return flags;
 }
 
